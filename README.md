@@ -1,5 +1,8 @@
 # Hermes — reference orchestrator for the Open Skill Protocol (OSP)
 
+[![CI](https://github.com/OWNER/hermes-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/hermes-orchestrator/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 OSP is a small open protocol for **discovering, fetching, verifying, and
 executing** remote "skills" on demand, instead of statically installing every
 tool an agent might ever need. Full protocol spec: [`spec/SPEC.md`](spec/SPEC.md).
@@ -88,7 +91,7 @@ from hermes.langchain_tool import build_langchain_tools
 
 account = httpx.post("http://127.0.0.1:10000/accounts", json={"name": "my-agent"}).json()
 orchestrator = HermesOrchestrator(
-    "http://127.0.0.1:10000",           # the gateway, not a registry directly
+    "http://127.0.0.1:10000",  # the gateway, not a registry directly
     api_key=account["api_key"],
     allowed_capabilities={"net:https://api.example.com/*"},  # deployment policy
 )
