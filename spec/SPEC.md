@@ -156,6 +156,32 @@ stores, so the checksum can't be spoofed at publish time. The publishing
 account becomes the skill's owner and can set `visibility` (`public` or
 `private`) and `allowed_accounts`.
 
+**A published `(id, version)`'s code is immutable.** Republishing the same
+version with different content is rejected (409) — the registry compares
+the new digest against the existing one and refuses a mismatch, requiring a
+new version instead. Republishing byte-identical content, or changing only
+`visibility`/`allowed_accounts`/`capabilities`/`description` while the code
+stays the same, is allowed (a no-op on the digest). This guarantee is what
+makes it safe for a client to cache verified payload bytes by digest
+indefinitely — see "Client-side payload caching" below — without it, a
+cached digest could silently stop meaning the same bytes.
+
+### Client-side payload caching (recommended, not required)
+
+Because a digest is guaranteed immutable once published, a payload fetched
+and verified for a given `sha256` never needs fetching or re-verifying
+again for that same digest — a cache hit is bytes that already passed the
+check in "4. Verification" below, by construction. The reference client
+caches by digest rather than by `(id, version)`, unbounded for v0.1. This
+matters most for chain calls (see "5a." below): a skill called repeatedly,
+directly or as a shared dependency inside one call tree, is fetched over
+the network exactly once — the same benefit a local skills directory gets
+for free just from being files already on disk. The manifest itself is
+*not* cached this way — `visibility`/`capabilities`/`allowed_accounts` can
+legitimately change on a version even though its code can't, so a manifest
+lookup always goes to the registry (which has its own, separate cache —
+see "Discovery" above).
+
 ### 4. Verification (mandatory)
 
 The orchestrator MUST compute `sha256` over the exact bytes received and

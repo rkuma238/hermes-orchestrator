@@ -27,6 +27,20 @@ class RegistryClient:
         self.base_url = base_url.rstrip("/")
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._client = httpx.Client(timeout=timeout, headers=headers)
+        # Content-addressed: keyed by the manifest's own sha256, not by
+        # (id, version). Safe *because* the registry now enforces that a
+        # published version's digest can't change (see
+        # registry_server.main.publish_skill) — a cache hit means these
+        # exact bytes already passed verification for this exact digest, so
+        # there's nothing left to re-fetch or re-check. This matters most
+        # for chain calls: a skill called repeatedly (directly, or as a
+        # shared dependency of several other skills in one call tree) is
+        # fetched and verified over the network exactly once, not once per
+        # call — the same benefit a local skills directory gets for free
+        # from just being files already on disk.
+        # Unbounded for v0.1 — fine for this project's scope; a long-lived
+        # deployment serving many distinct large payloads would want an LRU.
+        self._payload_cache: dict[str, bytes] = {}
 
     def discover(self, query: str = "", capability: str | None = None) -> list[SkillSummary]:
         params = {}
@@ -48,8 +62,17 @@ class RegistryClient:
 
         Raises ChecksumMismatchError if the fetched bytes don't match
         manifest.payload.sha256 — callers MUST NOT execute the bytes if this
-        raises.
+        raises. A cache hit skips the HTTP fetch entirely, not just the
+        verification — see the cache comment in __init__.
         """
+        cached = self._payload_cache.get(manifest.payload.sha256)
+        if cached is not None:
+            if require_signature and not manifest.payload.signature:
+                raise SignatureMissingError(
+                    f"{manifest.id}@{manifest.version} has no signature but policy requires one"
+                )
+            return cached
+
         url = manifest.payload.url
         if url.startswith("/"):
             url = f"{self.base_url}{url}"
@@ -71,6 +94,7 @@ class RegistryClient:
         if manifest.payload.signature and manifest.publisher and manifest.publisher.public_key:
             _verify_signature(digest, manifest.payload.signature, manifest.publisher.public_key)
 
+        self._payload_cache[digest] = payload
         return payload
 
     def report_invocation(self, skill_id: str, version: str, *, success: bool, error: str | None = None) -> None:

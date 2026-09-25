@@ -238,6 +238,24 @@ def publish_skill(skill_id: str, version: str, body: dict, x_account_id: str | N
     digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
     entrypoint_file, _ = body["entrypoint"].split(":")
 
+    # A published (id, version)'s code is immutable: once a digest is set for
+    # it, republishing different content under the same version is rejected
+    # rather than silently overwritten. This is what makes it safe for a
+    # client to cache verified payload bytes by digest — without this,
+    # nothing would guarantee that digest still means the same bytes the
+    # next time someone asks for it. Republishing byte-identical content (or
+    # just changing visibility/capabilities/description) is fine — the
+    # digest doesn't change, so there's nothing to invalidate.
+    if existing and existing["payload"]["sha256"] != digest:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{skill_id}@{version} is already published with a different sha256 "
+                f"({existing['payload']['sha256'][:12]}...) — versions are immutable once "
+                "published; publish this code under a new version instead"
+            ),
+        )
+
     skill_dir = STORE / skill_id / version
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / entrypoint_file).write_text(code)

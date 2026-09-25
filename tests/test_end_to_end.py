@@ -227,3 +227,70 @@ def test_node_runtime_skill(orchestrator, account):
 
     result = orchestrator.invoke("pytest-node-skill", "1.0.0", {"text": "skillward"})
     assert result == {"upper": "SKILLWARD"}
+
+
+def _publish_immutability_skill(api_key: str, skill_id: str, *, code: str, visibility: str = "public"):
+    return httpx.post(
+        f"{GATEWAY_URL}/skills/{skill_id}/1.0.0",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={
+            "name": "Immutability Check",
+            "description": "proves a published version's code can't silently change",
+            "runtime": "python3.13",
+            "entrypoint": "payload.py:run",
+            "input_schema": {"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]},
+            "output_schema": {"type": "object", "properties": {"y": {"type": "integer"}}, "required": ["y"]},
+            "visibility": visibility,
+            "code": code,
+        },
+    )
+
+
+def test_republishing_same_version_with_different_code_is_rejected(account):
+    first = _publish_immutability_skill(
+        account["api_key"], "pytest-immutable-1", code="def run(input_data):\n    return {'y': 1}\n"
+    )
+    assert first.status_code == 200
+    original_digest = first.json()["payload"]["sha256"]
+
+    second = _publish_immutability_skill(
+        account["api_key"], "pytest-immutable-1", code="def run(input_data):\n    return {'y': 2}\n"
+    )
+    assert second.status_code == 409
+    assert original_digest[:12] in second.json()["detail"]
+
+
+def test_republishing_same_version_with_identical_code_is_allowed(account):
+    code = "def run(input_data):\n    return {'y': 3}\n"
+    first = _publish_immutability_skill(account["api_key"], "pytest-immutable-2", code=code, visibility="private")
+    assert first.status_code == 200
+
+    # Same code, different visibility — allowed, since the digest is unchanged.
+    second = _publish_immutability_skill(account["api_key"], "pytest-immutable-2", code=code, visibility="public")
+    assert second.status_code == 200
+    assert second.json()["payload"]["sha256"] == first.json()["payload"]["sha256"]
+    assert second.json()["visibility"] == "public"
+
+
+def test_repeated_payload_fetch_skips_the_network(orchestrator):
+    # Not just "returns the right bytes twice" — actually counting the
+    # underlying HTTP calls, since a cache that's correct-but-unused would
+    # pass a naive assertion just as easily as a working one.
+    manifest = orchestrator.registry.get_manifest("example-echo", "1.0.0")
+
+    call_count = 0
+    real_get = orchestrator.registry._client.get
+
+    def counting_get(url, *args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return real_get(url, *args, **kwargs)
+
+    orchestrator.registry._client.get = counting_get
+
+    first = orchestrator.registry.fetch_verified_payload(manifest)
+    second = orchestrator.registry.fetch_verified_payload(manifest)
+    third = orchestrator.registry.fetch_verified_payload(manifest)
+
+    assert first == second == third
+    assert call_count == 1
