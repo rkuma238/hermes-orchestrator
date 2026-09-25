@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osp-hermes"
+version = "0.1.0"
+description = "Reference orchestrator for the Open Skill Protocol (OSP): discover, verify, and execute remote skills through an authenticated gateway, with a LangChain tool adapter."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [{ name = "Open Skill Protocol contributors" }]
+keywords = ["agents", "llm", "langchain", "tools", "skills", "mcp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "httpx>=0.28",
+    "pydantic>=2.11",
+    "jsonschema>=4.26",
+    "cryptography>=50.0",
+]
+
+[project.optional-dependencies]
+langchain = ["langchain-core>=1.6"]
+dev = ["pytest>=9.0", "PyYAML>=6.0", "fastapi>=0.141", "uvicorn[standard]>=0.53"]
+
+[project.urls]
+Homepage = "https://github.com/OWNER/hermes-orchestrator"
+Specification = "https://github.com/OWNER/hermes-orchestrator/blob/main/spec/SPEC.md"
+
+[tool.setuptools.packages.find]
+include = ["hermes*"]
