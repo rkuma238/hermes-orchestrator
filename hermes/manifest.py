@@ -3,6 +3,7 @@
 Mirrors spec/skill-manifest.schema.json — see spec/SPEC.md for the full
 protocol description.
 """
+
 from __future__ import annotations
 
 import re
@@ -106,7 +107,7 @@ class SkillSummary(BaseModel):
     visibility: str = "private"
 
     @classmethod
-    def from_manifest(cls, m: SkillManifest) -> "SkillSummary":
+    def from_manifest(cls, m: SkillManifest) -> SkillSummary:
         return cls(
             id=m.id,
             version=m.version,

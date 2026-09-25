@@ -6,6 +6,7 @@ calling this — the point being that onboarding a new registry behind the
 gateway is 'write a skills_store + one backends.yaml entry', not
 copy-pasted security logic.
 """
+
 import json
 from pathlib import Path
 

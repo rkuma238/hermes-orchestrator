@@ -1,5 +1,6 @@
 """Expose OSP skills, discovered from a registry at agent-build time, as
 LangChain StructuredTools — this is the piece meant to be upstreamed."""
+
 from __future__ import annotations
 
 from typing import Any

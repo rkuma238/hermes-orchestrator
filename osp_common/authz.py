@@ -8,6 +8,7 @@ Every backend that imports this trusts `x_account_id` completely — that is
 only safe because Envoy's ext_authz gate is the sole way to reach any of
 these backends. See spec/SPEC.md.
 """
+
 from fastapi import HTTPException
 
 

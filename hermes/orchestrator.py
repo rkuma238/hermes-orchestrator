@@ -2,6 +2,7 @@
 
 Ties together discover -> fetch -> verify -> capability-check -> execute.
 """
+
 from __future__ import annotations
 
 import logging
@@ -11,7 +12,7 @@ import jsonschema
 
 from .manifest import SkillManifest, SkillSummary
 from .registry_client import RegistryClient
-from .sandbox import ResourceLimits, SandboxRequest, SandboxRunner, SubprocessSandboxRunner
+from .sandbox import SandboxRequest, SandboxRunner, SubprocessSandboxRunner
 
 log = logging.getLogger("hermes")
 
@@ -64,9 +65,7 @@ class HermesOrchestrator:
 
         jsonschema.validate(instance=input_data, schema=manifest.input_schema)
 
-        payload = self.registry.fetch_verified_payload(
-            manifest, require_signature=self.require_signature
-        )
+        payload = self.registry.fetch_verified_payload(manifest, require_signature=self.require_signature)
         log.info(
             "verified payload for %s@%s (sha256=%s)",
             manifest.id,
@@ -127,7 +126,7 @@ class HermesOrchestrator:
     def close(self) -> None:
         self.registry.close()
 
-    def __enter__(self) -> "HermesOrchestrator":
+    def __enter__(self) -> HermesOrchestrator:
         return self
 
     def __exit__(self, *exc) -> None:

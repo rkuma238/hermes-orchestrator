@@ -9,6 +9,7 @@ exposed on the public listener (Envoy's config blocks it explicitly).
 Authorization (which skills a given account can see) is enforced here, using
 the identity Envoy already validated.
 """
+
 import hashlib
 import json
 import os
@@ -103,8 +104,6 @@ def _load_manifest_or_none(skill_id: str, version: str) -> dict | None:
     if not manifest_path.exists():
         return None
     return json.loads(manifest_path.read_text())
-
-
 
 
 # ---------------------------------------------------------------------------

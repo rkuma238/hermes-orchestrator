@@ -4,6 +4,7 @@ ports so this suite can run alongside a manually-running dev stack).
 
 Run with: pytest tests/ -v (from the project root, inside .venv)
 """
+
 import copy
 import os
 import shutil
@@ -13,6 +14,7 @@ import time
 from pathlib import Path
 
 import httpx
+import jsonschema
 import pytest
 import yaml
 
@@ -159,7 +161,7 @@ def test_skill_router_labs_backend(orchestrator):
 
 
 def test_input_schema_rejects_bad_input(orchestrator):
-    with pytest.raises(Exception):  # jsonschema.ValidationError
+    with pytest.raises(jsonschema.ValidationError):
         orchestrator.invoke("example-echo", "1.0.0", {"wrong_field": "hi"})
 
 
@@ -223,10 +225,14 @@ def test_private_skill_hidden_from_other_accounts(orchestrator, account):
     assert publish_resp.status_code == 200
 
     alice_ids = {
-        s["id"] for s in httpx.get(f"{GATEWAY_URL}/discover", headers={"Authorization": f"Bearer {alice['api_key']}"}).json()
+        s["id"]
+        for s in httpx.get(
+            f"{GATEWAY_URL}/discover", headers={"Authorization": f"Bearer {alice['api_key']}"}
+        ).json()
     }
     bob_ids = {
-        s["id"] for s in httpx.get(f"{GATEWAY_URL}/discover", headers={"Authorization": f"Bearer {bob['api_key']}"}).json()
+        s["id"]
+        for s in httpx.get(f"{GATEWAY_URL}/discover", headers={"Authorization": f"Bearer {bob['api_key']}"}).json()
     }
     assert "pytest-secret" in alice_ids
     assert "pytest-secret" not in bob_ids

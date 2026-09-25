@@ -3,6 +3,7 @@ skills_store and (2) adding an entry to envoy/backends.yaml — no changes to
 registry_server, partner_service, or hand-edited Envoy routes. Proves the
 gateway scales past two backends via config, not code.
 """
+
 from pathlib import Path
 
 from osp_common.skill_backend import make_skill_backend_app

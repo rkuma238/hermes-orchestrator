@@ -5,19 +5,20 @@ discovery/manifest stay centralized. Run once:
 
     python -m scripts.seed_partner_skill
 """
+
 import hashlib
 import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
 
-PAYLOAD_SRC = '''def run(input_data):
+PAYLOAD_SRC = """def run(input_data):
     amount = input_data["amount"]
     rate = {"USD_EUR": 0.92, "EUR_USD": 1.09}.get(input_data["pair"])
     if rate is None:
         raise ValueError(f"unsupported pair: {input_data['pair']}")
     return {"converted": round(amount * rate, 2), "rate": rate}
-'''
+"""
 
 SKILL_ID = "partner-currency-convert"
 VERSION = "1.0.0"

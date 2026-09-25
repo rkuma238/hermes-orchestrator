@@ -4,6 +4,7 @@ Not a production auth store (no key rotation, no rate limiting) — it exists
 to make the Envoy ext_authz flow and the publisher dashboard real and
 testable rather than mocked.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -78,9 +79,7 @@ def create_account(name: str) -> tuple[str, str]:
 
 def resolve_api_key(api_key: str) -> str | None:
     conn = _conn()
-    row = conn.execute(
-        "SELECT account_id FROM api_keys WHERE key_hash = ?", (_hash_key(api_key),)
-    ).fetchone()
+    row = conn.execute("SELECT account_id FROM api_keys WHERE key_hash = ?", (_hash_key(api_key),)).fetchone()
     conn.close()
     return row["account_id"] if row else None
 

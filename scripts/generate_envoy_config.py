@@ -10,6 +10,7 @@ Route ordering rule (Envoy matches top-to-bottom, first match wins):
      so a backend can't accidentally shadow a more specific one just by
      listing order in the YAML.
 """
+
 from pathlib import Path
 
 import yaml

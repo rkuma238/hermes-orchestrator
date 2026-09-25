@@ -14,6 +14,7 @@ an ephemeral module namespace, and the subprocess exits when the call
 returns. This isn't a security control — it's just that a per-call
 subprocess has no reason to persist the code as a file.
 """
+
 from __future__ import annotations
 
 import json
@@ -104,9 +105,7 @@ class SubprocessSandboxRunner(SandboxRunner):
                     env=env,
                 )
             except subprocess.TimeoutExpired as e:
-                raise SkillExecutionError(
-                    f"skill exceeded {request.limits.timeout_seconds}s timeout"
-                ) from e
+                raise SkillExecutionError(f"skill exceeded {request.limits.timeout_seconds}s timeout") from e
 
         if proc.returncode != 0 and not proc.stdout.strip():
             raise SkillExecutionError(f"skill process crashed: {proc.stderr.strip()[-2000:]}")
@@ -114,9 +113,7 @@ class SubprocessSandboxRunner(SandboxRunner):
         try:
             outcome = json.loads(proc.stdout)
         except json.JSONDecodeError as e:
-            raise SkillExecutionError(
-                f"skill did not return valid JSON on stdout: {proc.stdout[:500]!r}"
-            ) from e
+            raise SkillExecutionError(f"skill did not return valid JSON on stdout: {proc.stdout[:500]!r}") from e
 
         if not outcome.get("ok"):
             raise SkillExecutionError(f"skill raised: {outcome.get('error')}")

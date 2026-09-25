@@ -4,6 +4,7 @@ checksum in the manifest always matches the bytes actually being served.
 Run this whenever an example payload.py changes:
     python registry_server/build_manifests.py
 """
+
 import hashlib
 import json
 from pathlib import Path

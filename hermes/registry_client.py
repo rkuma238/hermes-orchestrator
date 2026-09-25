@@ -1,11 +1,15 @@
 """Discovery + fetch side of OSP: talk to a registry, verify what it returns."""
+
 from __future__ import annotations
 
 import hashlib
+import logging
 
 import httpx
 
 from .manifest import SkillManifest, SkillSummary
+
+log = logging.getLogger("hermes")
 
 
 class ChecksumMismatchError(Exception):
@@ -69,9 +73,7 @@ class RegistryClient:
 
         return payload
 
-    def report_invocation(
-        self, skill_id: str, version: str, *, success: bool, error: str | None = None
-    ) -> None:
+    def report_invocation(self, skill_id: str, version: str, *, success: bool, error: str | None = None) -> None:
         """Best-effort usage telemetry so a skill's publisher can see it was
         invoked. Never raises — a telemetry failure must not fail the call
         that already succeeded (or already failed on its own terms)."""
@@ -87,7 +89,7 @@ class RegistryClient:
     def close(self) -> None:
         self._client.close()
 
-    def __enter__(self) -> "RegistryClient":
+    def __enter__(self) -> RegistryClient:
         return self
 
     def __exit__(self, *exc) -> None:

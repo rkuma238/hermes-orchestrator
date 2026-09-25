@@ -5,16 +5,17 @@ Run once:
 
     python -m scripts.seed_labs_skill
 """
+
 import hashlib
 import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
 
-PAYLOAD_SRC = '''def run(input_data):
+PAYLOAD_SRC = """def run(input_data):
     text = input_data["text"]
     return {"reversed": text[::-1]}
-'''
+"""
 
 SKILL_ID = "labs-reverse-text"
 VERSION = "1.0.0"
