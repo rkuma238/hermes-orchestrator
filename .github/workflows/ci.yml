@@ -44,11 +44,11 @@ jobs:
           sudo ln -sf "$("$HOME/.local/bin/func-e" which)" /usr/local/bin/envoy
           envoy --version
 
+      # langchain, llamaindex, and autogen coexist fine in one environment.
+      # crewai and google-adk do not (protobuf version conflict) and are
+      # tested in their own isolated jobs below instead.
       - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -e .
+        run: pip install -e ".[dev,langchain,llamaindex,autogen]"
 
       - name: Validate Envoy config generation
         run: |
@@ -57,3 +57,39 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ -v
+
+  # crewai and google-adk each pull in a conflicting protobuf version when
+  # installed together (or alongside crewai's chromadb dependency), so each
+  # gets its own isolated job/environment rather than joining the matrix
+  # above — this also happens to be exactly how a real user would install
+  # skillward (one framework extra at a time), so it doubles as a check that
+  # each adapter genuinely works standalone.
+  test-crewai:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install Envoy (via func-e)
+        run: |
+          curl -L https://func-e.io/install.sh | bash -s -- -b "$HOME/.local/bin"
+          "$HOME/.local/bin/func-e" use 1.39.1
+          sudo ln -sf "$("$HOME/.local/bin/func-e" which)" /usr/local/bin/envoy
+      - run: pip install -e ".[dev,crewai]"
+      - run: pytest tests/test_framework_adapters.py::test_crewai_tool -v
+
+  test-google-adk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install Envoy (via func-e)
+        run: |
+          curl -L https://func-e.io/install.sh | bash -s -- -b "$HOME/.local/bin"
+          "$HOME/.local/bin/func-e" use 1.39.1
+          sudo ln -sf "$("$HOME/.local/bin/func-e" which)" /usr/local/bin/envoy
+      - run: pip install -e ".[dev,google-adk]"
+      - run: pytest tests/test_framework_adapters.py::test_google_adk_tool -v

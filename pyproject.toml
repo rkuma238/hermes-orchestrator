@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "skillward"
 version = "0.1.0"
-description = "Reference orchestrator for the Skillward Protocol: discover, verify, and execute remote skills through an authenticated gateway, with a LangChain tool adapter."
+description = "Reference orchestrator for the Skillward Protocol: discover, verify, and execute remote skills through an authenticated gateway, with adapters for LangChain, LlamaIndex, CrewAI, AutoGen, Google ADK, and OpenAI."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
 authors = [{ name = "Skillward contributors" }]
-keywords = ["agents", "llm", "langchain", "tools", "skills", "mcp"]
+keywords = ["agents", "llm", "langchain", "llamaindex", "crewai", "autogen", "tools", "skills", "mcp"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -28,7 +28,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Each framework extra is intentionally independent. Do not install more
+# than one of crewai/google-adk/autogen together in the same environment
+# without checking for conflicts first: crewai (via chromadb) and google-adk
+# pull in incompatible protobuf versions as of the versions available when
+# this was written. Users installing one extra at a time (the normal case)
+# are unaffected.
 langchain = ["langchain-core>=1.6"]
+llamaindex = ["llama-index-core>=0.12"]
+crewai = ["crewai>=0.100"]
+autogen = ["autogen-core>=0.4"]
+google-adk = ["google-adk>=1.0"]
+# openai_tool.py has no third-party dependency — it only builds plain dicts.
 dev = ["pytest>=9.0", "PyYAML>=6.0", "fastapi>=0.141", "uvicorn[standard]>=0.53", "ruff>=0.8"]
 
 [project.urls]
