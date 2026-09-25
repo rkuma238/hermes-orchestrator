@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>OSP Publisher Dashboard</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; line-height: 1.4; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2.5rem; border-bottom: 1px solid #8884; padding-bottom: 0.3rem; }
+  section { margin-bottom: 1rem; }
+  label { display: block; font-size: 0.85rem; font-weight: 600; margin-top: 0.6rem; }
+  input, select, textarea { width: 100%; box-sizing: border-box; padding: 0.4rem; font-family: inherit; font-size: 0.9rem; margin-top: 0.15rem; }
+  textarea { font-family: ui-monospace, monospace; min-height: 4.5rem; }
+  button { margin-top: 0.8rem; padding: 0.5rem 1rem; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; margin-top: 0.6rem; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid #8883; }
+  code, pre { background: #8882; padding: 0.15rem 0.3rem; border-radius: 3px; }
+  pre { padding: 0.6rem; overflow-x: auto; }
+  .muted { opacity: 0.7; font-size: 0.85rem; }
+  .row { display: flex; gap: 0.6rem; }
+  .row > * { flex: 1; }
+  .ok { color: #2a7; }
+  .err { color: #d44; }
+  #account-banner { padding: 0.6rem; border-radius: 6px; background: #8882; }
+</style>
+</head>
+<body>
+
+<h1>OSP Publisher Dashboard</h1>
+<p class="muted">Reference UI for the Open Skill Protocol registry. Every call below goes through this gateway with your account's API key — there is no unauthenticated path except signup.</p>
+
+<section id="account-section">
+  <h2>Account</h2>
+  <div id="account-banner">Not signed in.</div>
+
+  <div class="row">
+    <div>
+      <label>Register a new account (name)</label>
+      <input id="new-account-name" placeholder="e.g. alice" />
+      <button onclick="registerAccount()">Create account</button>
+    </div>
+    <div>
+      <label>...or paste an existing account id + API key</label>
+      <input id="existing-account-id" placeholder="acct_..." />
+      <input id="existing-api-key" placeholder="osp_..." style="margin-top: 0.4rem;" />
+      <button onclick="useExistingKey()">Use this key</button>
+    </div>
+  </div>
+  <p class="muted">API keys are shown once at creation and stored only in this browser's localStorage for this demo.</p>
+  <div id="new-account-result"></div>
+</section>
+
+<section>
+  <h2>Publish a skill</h2>
+  <div class="row">
+    <div><label>Skill id</label><input id="p-id" placeholder="e.g. sentiment-score" /></div>
+    <div><label>Version</label><input id="p-version" value="1.0.0" /></div>
+  </div>
+  <label>Name</label><input id="p-name" placeholder="Sentiment Score" />
+  <label>Description</label><input id="p-description" placeholder="What does this skill do, in plain language" />
+  <div class="row">
+    <div>
+      <label>Runtime</label>
+      <select id="p-runtime"><option>python3.13</option><option>python3.12</option><option>python3.11</option></select>
+    </div>
+    <div><label>Entrypoint</label><input id="p-entrypoint" value="payload.py:run" /></div>
+    <div>
+      <label>Visibility</label>
+      <select id="p-visibility"><option value="private">private</option><option value="public">public</option></select>
+    </div>
+  </div>
+  <label>Capabilities (comma-separated, e.g. net:https://api.example.com/*)</label>
+  <input id="p-capabilities" placeholder="leave empty for none" />
+  <label>Allowed accounts (comma-separated account ids, only used when private)</label>
+  <input id="p-allowed-accounts" placeholder="leave empty for owner-only" />
+  <label>Input JSON Schema</label>
+  <textarea id="p-input-schema">{"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]}</textarea>
+  <label>Output JSON Schema</label>
+  <textarea id="p-output-schema">{"type": "object", "properties": {"result": {"type": "integer"}}, "required": ["result"]}</textarea>
+  <label>Payload source (payload.py)</label>
+  <textarea id="p-code" style="min-height: 8rem;">def run(input_data):
+    return {"result": input_data["x"]}</textarea>
+
+  <button onclick="publishSkill()">Publish</button>
+  <pre id="publish-result" class="muted">(publish result — including the server-computed checksum — will appear here)</pre>
+</section>
+
+<section>
+  <h2>My skills</h2>
+  <button onclick="loadMySkills()">Refresh</button>
+  <table id="skills-table"><thead><tr><th>id</th><th>version</th><th>visibility</th><th>sha256</th></tr></thead><tbody></tbody></table>
+</section>
+
+<section>
+  <h2>Invocation log</h2>
+  <p class="muted">Every time an orchestrator invokes one of your skills, it best-effort reports the outcome here.</p>
+  <button onclick="loadInvocations()">Refresh</button>
+  <table id="invocations-table"><thead><tr><th>skill</th><th>caller</th><th>result</th><th>when</th></tr></thead><tbody></tbody></table>
+</section>
+
+<script>
+const state = { accountId: localStorage.getItem('osp_account_id'), apiKey: localStorage.getItem('osp_api_key') };
+
+function renderBanner() {
+  const el = document.getElementById('account-banner');
+  el.textContent = state.apiKey
+    ? `Signed in as ${state.accountId}`
+    : 'Not signed in.';
+}
+renderBanner();
+
+async function api(path, opts = {}) {
+  const headers = opts.headers || {};
+  if (state.apiKey) headers['Authorization'] = `Bearer ${state.apiKey}`;
+  if (opts.body) headers['Content-Type'] = 'application/json';
+  const resp = await fetch(path, { ...opts, headers });
+  const text = await resp.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = text; }
+  if (!resp.ok) throw new Error(typeof data === 'object' ? JSON.stringify(data) : data);
+  return data;
+}
+
+function showInline(elId, html, isError = false) {
+  const el = document.getElementById(elId);
+  el.innerHTML = html;
+  el.className = isError ? 'err' : 'ok';
+}
+
+async function registerAccount() {
+  const resultEl = document.getElementById('new-account-result');
+  const name = document.getElementById('new-account-name').value.trim();
+  if (!name) return showInline('new-account-result', 'Enter a name first.', true);
+  try {
+    const account = await api('/accounts', { method: 'POST', body: JSON.stringify({ name }) });
+    state.accountId = account.account_id;
+    state.apiKey = account.api_key;
+    localStorage.setItem('osp_account_id', state.accountId);
+    localStorage.setItem('osp_api_key', state.apiKey);
+    renderBanner();
+    showInline(
+      'new-account-result',
+      `Account created — id: <code>${account.account_id}</code>, api_key: <code>${account.api_key}</code><br>` +
+        `<span class="muted">save this key now, it will not be shown again (already saved to this browser's localStorage)</span>`
+    );
+  } catch (e) {
+    showInline('new-account-result', `Error: ${e.message}`, true);
+  }
+}
+
+function useExistingKey() {
+  const key = document.getElementById('existing-api-key').value.trim();
+  const id = document.getElementById('existing-account-id').value.trim();
+  if (!key || !id) return showInline('new-account-result', 'Enter both the account id and its api key.', true);
+  state.apiKey = key;
+  state.accountId = id;
+  localStorage.setItem('osp_account_id', id);
+  localStorage.setItem('osp_api_key', key);
+  renderBanner();
+  showInline('new-account-result', `Now using account <code>${id}</code>.`);
+}
+
+function splitCsv(v) {
+  return v.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+async function publishSkill() {
+  const out = document.getElementById('publish-result');
+  try {
+    const id = document.getElementById('p-id').value.trim();
+    const version = document.getElementById('p-version').value.trim();
+    const body = {
+      name: document.getElementById('p-name').value,
+      description: document.getElementById('p-description').value,
+      runtime: document.getElementById('p-runtime').value,
+      entrypoint: document.getElementById('p-entrypoint').value,
+      visibility: document.getElementById('p-visibility').value,
+      capabilities: splitCsv(document.getElementById('p-capabilities').value),
+      allowed_accounts: splitCsv(document.getElementById('p-allowed-accounts').value),
+      input_schema: JSON.parse(document.getElementById('p-input-schema').value),
+      output_schema: JSON.parse(document.getElementById('p-output-schema').value),
+      code: document.getElementById('p-code').value,
+    };
+    const manifest = await api(`/skills/${encodeURIComponent(id)}/${encodeURIComponent(version)}`, {
+      method: 'POST', body: JSON.stringify(body),
+    });
+    out.innerHTML = `<span class="ok">Published.</span> checksum: <code>${manifest.payload.sha256}</code>\n\n` + JSON.stringify(manifest, null, 2);
+    loadMySkills();
+  } catch (e) {
+    out.innerHTML = `<span class="err">Error:</span> ${e.message}`;
+  }
+}
+
+async function loadMySkills() {
+  const tbody = document.querySelector('#skills-table tbody');
+  tbody.innerHTML = '';
+  if (!state.accountId) return;
+  const skills = await api(`/accounts/${state.accountId}/skills`);
+  for (const s of skills) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${s.id}</td><td>${s.version}</td><td>${s.visibility}</td><td><code>${s.payload.sha256.slice(0, 16)}…</code></td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+async function loadInvocations() {
+  const tbody = document.querySelector('#invocations-table tbody');
+  tbody.innerHTML = '';
+  if (!state.accountId) return;
+  const rows = await api(`/accounts/${state.accountId}/invocations`);
+  for (const r of rows) {
+    const tr = document.createElement('tr');
+    const result = r.success ? '<span class="ok">ok</span>' : `<span class="err">error: ${r.error || ''}</span>`;
+    const when = new Date(r.ts * 1000).toLocaleString();
+    tr.innerHTML = `<td>${r.skill_id}@${r.skill_version}</td><td>${r.caller_account_id || ''}</td><td>${result}</td><td>${when}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+</script>
+</body>
+</html>

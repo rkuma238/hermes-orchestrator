@@ -1,0 +1,57 @@
+{
+  "osp_version": "0.1",
+  "id": "partner-currency-convert",
+  "version": "1.0.0",
+  "name": "Currency Convert (partner)",
+  "description": "Converts an amount between USD and EUR. Served by an independent partner backend, routed to by Envoy on path alone.",
+  "runtime": "python3.13",
+  "entrypoint": "payload.py:run",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "amount": {
+        "type": "number"
+      },
+      "pair": {
+        "type": "string",
+        "enum": [
+          "USD_EUR",
+          "EUR_USD"
+        ]
+      }
+    },
+    "required": [
+      "amount",
+      "pair"
+    ]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "converted": {
+        "type": "number"
+      },
+      "rate": {
+        "type": "number"
+      }
+    },
+    "required": [
+      "converted",
+      "rate"
+    ]
+  },
+  "capabilities": [],
+  "resource_limits": {
+    "timeout_seconds": 10,
+    "max_memory_mb": 256
+  },
+  "payload": {
+    "url": "/partner/partner-currency-convert/1.0.0/payload",
+    "sha256": "cb95df272014316d3a72fb2385d2901cf37f76192ccc2328fa460e7f053e9778"
+  },
+  "publisher": {
+    "name": "example-partner-co"
+  },
+  "visibility": "public",
+  "allowed_accounts": []
+}

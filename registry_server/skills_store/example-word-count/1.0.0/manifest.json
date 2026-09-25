@@ -1,0 +1,49 @@
+{
+  "osp_version": "0.1",
+  "id": "example-word-count",
+  "version": "1.0.0",
+  "name": "Word Count",
+  "description": "Counts words and characters in a block of text.",
+  "runtime": "python3.13",
+  "entrypoint": "payload.py:run",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "text"
+    ]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "word_count": {
+        "type": "integer"
+      },
+      "char_count": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "word_count",
+      "char_count"
+    ]
+  },
+  "capabilities": [],
+  "resource_limits": {
+    "timeout_seconds": 10,
+    "max_memory_mb": 256
+  },
+  "payload": {
+    "url": "/skills/example-word-count/1.0.0/payload",
+    "sha256": "66a3e13d3a70bbd2e06683ad05642de5507bd6c8c984c83b435b224dc3d2b383"
+  },
+  "publisher": {
+    "name": "osp-reference-examples"
+  },
+  "visibility": "public",
+  "allowed_accounts": []
+}

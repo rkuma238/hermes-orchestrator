@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openskillprotocol.org/schema/skill-manifest-0.1.json",
+  "title": "Open Skill Protocol (OSP) Skill Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "osp_version",
+    "id",
+    "version",
+    "name",
+    "description",
+    "runtime",
+    "entrypoint",
+    "input_schema",
+    "output_schema",
+    "capabilities",
+    "payload"
+  ],
+  "properties": {
+    "osp_version": {
+      "type": "string",
+      "const": "0.1",
+      "description": "Version of the Open Skill Protocol this manifest conforms to."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+      "description": "Globally unique, human-readable skill identifier, e.g. 'word-count'."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semver version of this skill."
+    },
+    "name": { "type": "string" },
+    "description": {
+      "type": "string",
+      "description": "Natural-language description used by orchestrators/LLMs for discovery and skill selection."
+    },
+    "runtime": {
+      "type": "string",
+      "enum": ["python3.11", "python3.12", "python3.13"],
+      "description": "Execution runtime the payload targets. v0.1 supports CPython only; future versions may add 'wasm-component'."
+    },
+    "entrypoint": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_./]+\\.py:[A-Za-z_][A-Za-z0-9_]*$",
+      "description": "Path within the payload plus the callable to invoke, e.g. 'payload.py:run'. The callable receives a single JSON-serializable dict and returns a JSON-serializable dict."
+    },
+    "input_schema": {
+      "type": "object",
+      "description": "JSON Schema describing the input dict passed to the entrypoint."
+    },
+    "output_schema": {
+      "type": "object",
+      "description": "JSON Schema describing the output dict returned by the entrypoint."
+    },
+    "capabilities": {
+      "type": "array",
+      "description": "Declared permissions this skill requires. Orchestrators MUST deny anything not listed here. Empty array means fully sandboxed with no network/filesystem access.",
+      "items": {
+        "type": "string",
+        "pattern": "^(net|fs|env):.+$|^none$"
+      },
+      "examples": [[], ["net:https://api.example.com/*"], ["env:MY_API_KEY"]]
+    },
+    "resource_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout_seconds": { "type": "number", "default": 10, "maximum": 300 },
+        "max_memory_mb": { "type": "integer", "default": 256 }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "sha256"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Where the orchestrator fetches the executable payload from."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Hex sha256 digest of the exact bytes served at payload.url. Orchestrators MUST verify this before execution."
+        },
+        "signature": {
+          "type": "string",
+          "description": "Optional base64 Ed25519 signature of the sha256 digest, verifiable against publisher.public_key."
+        }
+      }
+    },
+    "publisher": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "account_id": {
+          "type": "string",
+          "description": "Account that published this skill; set by the registry, not the publisher."
+        },
+        "public_key": {
+          "type": "string",
+          "description": "Optional base64 Ed25519 public key used to verify payload.signature."
+        }
+      }
+    },
+    "visibility": {
+      "type": "string",
+      "enum": ["public", "private"],
+      "default": "private",
+      "description": "'public' skills are discoverable/fetchable by any authenticated account. 'private' skills are visible only to their owning account and any account listed in allowed_accounts."
+    },
+    "allowed_accounts": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Account ids granted access to a private skill, in addition to its owner. Ignored when visibility is 'public'."
+    }
+  }
+}

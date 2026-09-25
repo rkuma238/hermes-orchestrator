@@ -1,0 +1,49 @@
+{
+  "osp_version": "0.1",
+  "id": "example-echo",
+  "version": "1.0.0",
+  "name": "Echo",
+  "description": "Echoes back a message and reports its length. Trivial reference skill for testing discovery/fetch/execute.",
+  "runtime": "python3.13",
+  "entrypoint": "payload.py:run",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "message": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "message"
+    ]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "echo": {
+        "type": "string"
+      },
+      "length": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "echo",
+      "length"
+    ]
+  },
+  "capabilities": [],
+  "resource_limits": {
+    "timeout_seconds": 10,
+    "max_memory_mb": 256
+  },
+  "payload": {
+    "url": "/skills/example-echo/1.0.0/payload",
+    "sha256": "57f0a4d24f63abb62bb116aeed9d60c622f74ef1c65d2875928d622b73be569c"
+  },
+  "publisher": {
+    "name": "osp-reference-examples"
+  },
+  "visibility": "public",
+  "allowed_accounts": []
+}

@@ -1,0 +1,30 @@
+# Declarative list of skill backends behind the OSP gateway.
+#
+# To onboard a new skill registry/backend: add an entry below and re-run
+#     python -m scripts.generate_envoy_config
+# then restart Envoy. No hand-editing of envoy/envoy.yaml required.
+#
+# Exactly one backend must be `authz_backend: true` — it's the one serving
+# /internal/authz, which Envoy's ext_authz filter calls on every request that
+# isn't listed under a backend's `public_paths`.
+
+backends:
+  - name: registry_service
+    host: 127.0.0.1
+    port: 8079
+    route_prefix: "/" # catch-all: discovery, manifests, accounts, publishing
+    authz_backend: true
+    public_paths:
+      - prefix: "/accounts"
+        method: POST
+      - prefix: "/dashboard"
+
+  - name: partner_service
+    host: 127.0.0.1
+    port: 8082
+    route_prefix: "/partner/"
+
+  - name: labs_service
+    host: 127.0.0.1
+    port: 8083
+    route_prefix: "/labs/"

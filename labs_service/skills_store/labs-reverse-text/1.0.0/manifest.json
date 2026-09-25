@@ -1,0 +1,45 @@
+{
+  "osp_version": "0.1",
+  "id": "labs-reverse-text",
+  "version": "1.0.0",
+  "name": "Reverse Text (labs)",
+  "description": "Reverses a string. Served by a third, independently added backend to prove multi-registry onboarding via config.",
+  "runtime": "python3.13",
+  "entrypoint": "payload.py:run",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "text"
+    ]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "reversed": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "reversed"
+    ]
+  },
+  "capabilities": [],
+  "resource_limits": {
+    "timeout_seconds": 10,
+    "max_memory_mb": 256
+  },
+  "payload": {
+    "url": "/labs/labs-reverse-text/1.0.0/payload",
+    "sha256": "b8b01dd5a971f71a3c8d65dbe274aeb7ef2d0de42d141bab1105cdc38242ce6c"
+  },
+  "publisher": {
+    "name": "example-labs-team"
+  },
+  "visibility": "public",
+  "allowed_accounts": []
+}
