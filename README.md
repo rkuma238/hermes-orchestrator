@@ -43,6 +43,52 @@ Use it if:
 - You want to let other people or teams publish skills your agents can use,
   without handing them a backdoor into your systems.
 
+## For platform/security teams: the problem with local skill installs
+
+Everything above is the individual-developer pitch. There's a separate,
+sharper reason a platform or security team would care: **locally-installed
+skills — a folder on someone's laptop, a script cloned from some repo, a
+`SKILL.md` dropped into an agent's skills directory — have no central
+management story at all**, and that's a real operational and security
+problem once more than one person is involved.
+
+Concretely, with skills living as local files:
+
+1. **No visibility.** There's no way to know what skills are actually
+   running across an org, who installed them, or when they last changed.
+2. **No integrity guarantee.** A skill is just files on disk. Nothing ties
+   "the version someone reviewed" to "the version that's actually
+   executing" — a compromised dependency, a malicious contributor, or a
+   file quietly modified after review all look identical from the outside.
+3. **No access control.** Anyone with filesystem access can drop a skill
+   into their own skills directory and start using it. There's no way to
+   say "only the finance team can use the skill that touches the ledger
+   API" or "this one isn't approved for production yet."
+4. **No revocation.** If a skill turns out to be broken or malicious, there
+   is no "pull it back" — someone has to notice, then track down and clean
+   up every machine it might be sitting on.
+5. **No audit trail.** When something goes wrong, there's no record of
+   which skill ran, for whom, with what input, or whether it succeeded.
+6. **Version drift.** Different machines end up running different versions
+   of "the same" skill, because there's no single source of truth anyone is
+   actually pulling from.
+
+Skillward's answer to each of these is mechanical, not aspirational —
+they're direct consequences of a skill never being a local file:
+
+| Local install problem | How Skillward closes it |
+|---|---|
+| No visibility | One registry; every published skill and its owner are queryable |
+| No integrity guarantee | sha256 checksum, verified by the orchestrator on every fetch, before execution |
+| No access control | `public`/`private` + `allowed_accounts`, enforced server-side per request |
+| No revocation | Change a skill's visibility or remove it once, centrally — nothing to clean up per machine |
+| No audit trail | Invocation telemetry: who ran what, when, success/failure (`/accounts/{id}/invocations`) |
+| Version drift | One registry, one current version — every fetch gets what's actually published |
+
+This isn't a compliance-checkbox pitch — it's the direct, mechanical answer
+to "what's running and who put it there," which local-file skill
+distribution structurally has no answer for.
+
 ## How this relates to MCP and Agent Skills (and what it doesn't do)
 
 Skillward is a **third, separate mechanism** — not a replacement for, and not
