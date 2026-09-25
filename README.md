@@ -4,11 +4,15 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 Skillward is a small open protocol for **discovering, fetching, verifying, and
-executing** remote "skills" on demand, instead of statically installing every
-tool an agent might ever need. Full protocol spec: [`spec/SPEC.md`](spec/SPEC.md).
-Manifest schema: [`spec/skill-manifest.schema.json`](spec/skill-manifest.schema.json).
+executing** remote "skills" **served over plain HTTPS** on demand, instead of
+statically installing every tool an agent might ever need. Full protocol
+spec: [`spec/SPEC.md`](spec/SPEC.md). Manifest schema:
+[`spec/skill-manifest.schema.json`](spec/skill-manifest.schema.json).
 Licensed under [Apache-2.0](LICENSE) — see [CONTRIBUTING.md](CONTRIBUTING.md)
 before opening a PR.
+
+**Read "How this relates to MCP and Agent Skills" below before assuming this
+replaces either** — it doesn't, and it isn't interoperable with them.
 
 ## Why would I use this?
 
@@ -38,6 +42,41 @@ Use it if:
   different "how do I load a tool" story for each one.
 - You want to let other people or teams publish skills your agents can use,
   without handing them a backdoor into your systems.
+
+## How this relates to MCP and Agent Skills (and what it doesn't do)
+
+Skillward is a **third, separate mechanism** — not a replacement for, and not
+interoperable with, either of the two discovery systems already in the agent
+ecosystem. Read this before assuming "skill discovery" is something Skillward
+invented, or that it plugs into either of the others automatically.
+
+| | MCP tools (`tools/list`) | Agent Skills (`SKILL.md`) | Skillward |
+|---|---|---|---|
+| Transport | Network — MCP's JSON-RPC protocol | Local filesystem scan | Network — plain HTTPS, this repo's own manifest format |
+| What's discovered | Callable functions exposed by a live server | Procedural instructions + bundled scripts | Small executable skills behind a signed/hashed manifest |
+| Auth on discovery | Not standardized by the protocol itself | N/A — already-local files | Every request authenticated by Envoy; private skills invisible to non-allow-listed callers |
+| Integrity check on what's discovered | None — the spec says to trust the server | N/A — files are already on your disk | sha256 verified by the orchestrator, before it ever executes anything |
+| Cross-server catalog | Official MCP Registry (`registry.modelcontextprotocol.io`) | N/A | This repo's own registry — **not** federated with the official one |
+
+**Concretely, this means:**
+
+- Calling an MCP server's `tools/list` will **never** surface a Skillward
+  skill. Skillward's `/discover` will **never** surface an MCP tool or a
+  `SKILL.md` skill. Discovering one does not discover the others — an agent
+  that needs all three kinds of capability needs all three discovery
+  mechanisms wired in side by side, not one instead of the others.
+- Skillward does not publish to, sync with, or read from the official MCP
+  Registry. It is a self-contained catalog, deliberately not a federated one.
+- Plain "skill discovery" — the idea of listing what's available — is **not**
+  the gap this project fills. That's already solved twice over: `tools/list`
+  within a server, and the official MCP Registry across servers. Building a
+  third generic "what exists" mechanism from scratch would just be
+  duplicating both. The part that genuinely isn't solved elsewhere yet is the
+  combination Skillward focuses on: **authenticated, per-caller-filtered
+  discovery** (a private catalog with real visibility control, not a public
+  app-store model) **plus client-verified integrity** (a cryptographic
+  checksum checked by the orchestrator itself, instead of MCP's current
+  "trust the server" guidance).
 
 ## Architecture
 
@@ -235,3 +274,12 @@ its Python reference implementation, with adapters for LangChain,
 LlamaIndex, CrewAI, AutoGen, Google ADK, and OpenAI, aimed at eventually
 proposing the most-used one(s) back to their respective ecosystems once
 they've had more real-world use.
+
+**Known limitation, stated plainly**: this is not, and is not trying to be, a
+replacement for MCP or Agent Skills — see "How this relates to MCP and Agent
+Skills" above. It has no federation with the official MCP Registry, no
+mechanism for an MCP server to expose a Skillward skill (or vice versa), and
+no way for an agent's Skills directory to pick up a Skillward skill without
+an adapter doing that translation explicitly. Skillward-discovered skills are
+a fourth kind of "thing an agent can do," alongside — not instead of — MCP
+tools, Agent Skills, and whatever a given framework already calls a "tool."
