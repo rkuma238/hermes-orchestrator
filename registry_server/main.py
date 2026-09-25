@@ -13,6 +13,7 @@ the identity Envoy already validated.
 import hashlib
 import json
 import os
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Response
@@ -92,18 +93,61 @@ def authz_check(_rest: str, authorization: str | None = Header(default=None)):
 
 # ---------------------------------------------------------------------------
 # Skill storage helpers + authorization
+#
+# Every discover/manifest/payload lookup used to re-read skills_store from
+# disk on every single call — fine for a handful of example skills, a real
+# headache once a catalog and its call volume grow. Manifests and payloads
+# are cached in memory after first load and only invalidated on publish,
+# since publish is the only thing that ever changes them.
 # ---------------------------------------------------------------------------
+
+_cache_lock = threading.Lock()
+_manifest_cache: dict[tuple[str, str], dict] | None = None
+_payload_cache: dict[tuple[str, str], str] | None = None
+
+
+def _load_store() -> tuple[dict[tuple[str, str], dict], dict[tuple[str, str], str]]:
+    manifests: dict[tuple[str, str], dict] = {}
+    payloads: dict[tuple[str, str], str] = {}
+    for manifest_path in sorted(STORE.glob("*/*/manifest.json")):
+        manifest = json.loads(manifest_path.read_text())
+        key = (manifest["id"], manifest["version"])
+        manifests[key] = manifest
+        entrypoint_file, _ = manifest["entrypoint"].split(":")
+        payload_path = manifest_path.parent / entrypoint_file
+        if payload_path.exists():
+            payloads[key] = payload_path.read_text()
+    return manifests, payloads
+
+
+def _get_caches() -> tuple[dict[tuple[str, str], dict], dict[tuple[str, str], str]]:
+    global _manifest_cache, _payload_cache
+    with _cache_lock:
+        if _manifest_cache is None:
+            _manifest_cache, _payload_cache = _load_store()
+        return _manifest_cache, _payload_cache
+
+
+def _invalidate_cache() -> None:
+    global _manifest_cache, _payload_cache
+    with _cache_lock:
+        _manifest_cache = None
+        _payload_cache = None
 
 
 def _load_all_manifests() -> list[dict]:
-    return [json.loads(p.read_text()) for p in sorted(STORE.glob("*/*/manifest.json"))]
+    manifests, _ = _get_caches()
+    return list(manifests.values())
 
 
 def _load_manifest_or_none(skill_id: str, version: str) -> dict | None:
-    manifest_path = STORE / skill_id / version / "manifest.json"
-    if not manifest_path.exists():
-        return None
-    return json.loads(manifest_path.read_text())
+    manifests, _ = _get_caches()
+    return manifests.get((skill_id, version))
+
+
+def _load_payload_or_none(skill_id: str, version: str) -> str | None:
+    _, payloads = _get_caches()
+    return payloads.get((skill_id, version))
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +166,14 @@ def discover(
     for manifest in _load_all_manifests():
         if not is_authorized(manifest, account_id):
             continue
-        haystack = f"{manifest['name']} {manifest['description']}".lower()
+        # Matching against id and capabilities too (not just name/description)
+        # is what lets a caller ask a targeted question ("something that does
+        # currency conversion", or "net:" for anything with network access)
+        # and get back just the relevant skill(s), instead of pulling the
+        # whole catalog into its own context to figure out which one applies.
+        haystack = " ".join(
+            [manifest["id"], manifest["name"], manifest["description"], *manifest["capabilities"]]
+        ).lower()
         if q and q.lower() not in haystack:
             continue
         if capability and capability not in manifest["capabilities"]:
@@ -159,11 +210,10 @@ def get_payload(skill_id: str, version: str, x_account_id: str | None = Header(d
     manifest = _load_manifest_or_none(skill_id, version)
     if not manifest or not is_authorized(manifest, account_id):
         raise HTTPException(status_code=404, detail=f"no such skill {skill_id}@{version}")
-    entrypoint_file, _ = manifest["entrypoint"].split(":")
-    payload_path = STORE / skill_id / version / entrypoint_file
-    if not payload_path.exists():
+    payload = _load_payload_or_none(skill_id, version)
+    if payload is None:
         raise HTTPException(status_code=404, detail="payload file missing")
-    return PlainTextResponse(payload_path.read_text(), media_type="text/x-python")
+    return PlainTextResponse(payload, media_type="text/x-python")
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +263,7 @@ def publish_skill(skill_id: str, version: str, body: dict, x_account_id: str | N
         "allowed_accounts": body.get("allowed_accounts", []),
     }
     (skill_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    _invalidate_cache()
     return manifest
 
 

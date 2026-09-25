@@ -161,3 +161,43 @@ def test_invocation_telemetry_recorded(orchestrator, account):
         headers={"Authorization": f"Bearer {account['api_key']}"},
     ).json()
     assert any(r["skill_id"] == "pytest-telemetry" and r["success"] for r in rows)
+
+
+def test_discover_query_matches_id_and_capability(orchestrator):
+    # "currency" isn't in the skill's name or description text at all — it's
+    # only in the id — so this only passes if matching covers id too.
+    by_id = orchestrator.discover(query="currency")
+    assert any(s.id == "partner-currency-convert" for s in by_id)
+
+    by_capability = orchestrator.discover(capability="net:https://api.example.com/*")
+    # No example skill declares that capability; this should filter down to
+    # nothing rather than error, proving the capability filter is applied.
+    assert by_capability == []
+
+
+def test_publish_is_immediately_discoverable(orchestrator, account):
+    # Regression test for the manifest cache added alongside this test:
+    # publishing must invalidate it, or a freshly published skill would stay
+    # invisible until some other publish happened to clear the cache.
+    skill_id = "pytest-cache-check"
+    publish_resp = httpx.post(
+        f"{GATEWAY_URL}/skills/{skill_id}/1.0.0",
+        headers={"Authorization": f"Bearer {account['api_key']}"},
+        json={
+            "name": "Cache Check",
+            "description": "proves publish invalidates the manifest cache",
+            "runtime": "python3.13",
+            "entrypoint": "payload.py:run",
+            "input_schema": {"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]},
+            "output_schema": {"type": "object", "properties": {"y": {"type": "integer"}}, "required": ["y"]},
+            "visibility": "public",
+            "code": "def run(input_data):\n    return {'y': input_data['x']}\n",
+        },
+    )
+    assert publish_resp.status_code == 200
+
+    ids = {s.id for s in orchestrator.discover()}
+    assert skill_id in ids
+
+    result = orchestrator.invoke(skill_id, "1.0.0", {"x": 7})
+    assert result == {"y": 7}

@@ -112,6 +112,23 @@ omitted — the registry doesn't distinguish "doesn't exist" from "exists but
 you can't see it," so discovery doesn't leak the existence of private skills
 to accounts outside their ACL.
 
+`q` matches against the skill's id, name, description, and declared
+capabilities — not just name/description — so a targeted query (e.g. a
+capability string, or a word that only appears in the id) narrows the result
+down to the relevant skill(s) instead of forcing the caller to fetch the
+whole catalog and reason over it itself. This matters for token/context
+budget as much as for convenience: an orchestrator asking a specific
+question gets back a short, relevant list, not everything the registry
+knows about.
+
+The reference registry caches manifests and payloads in memory after first
+load, invalidated on publish — `/discover` and skill fetches don't re-scan
+disk on every call. This is a performance property of the reference
+implementation, not a protocol requirement, but any registry serving a
+non-trivial catalog should do something equivalent: discovery that gets
+slower as the catalog grows undermines the whole point of asking a targeted
+question instead of listing everything.
+
 ### 2. Manifest fetch
 
 `GET /skills/{id}/{version}/manifest` returns the full manifest
