@@ -1,0 +1,30 @@
+name: Protocol change proposal
+description: Propose a change to the Open Skill Protocol itself (spec/SPEC.md, spec/skill-manifest.schema.json) — not a reference-implementation bug.
+labels: ["protocol"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Per CONTRIBUTING.md, protocol changes affect every implementation, not
+        just this one — discuss the design here before sending a PR.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What can't you express with the current manifest schema / protocol flow?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Concretely, what would change in the manifest schema or the discover/authenticate/authorize/fetch/verify/execute flow?
+    validations:
+      required: true
+  - type: textarea
+    id: compat
+    attributes:
+      label: Compatibility impact
+      description: Does this need a new osp_version? Would existing manifests/orchestrators still work?
+    validations:
+      required: true

@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in the reference implementation doesn't work as documented.
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - registry_server
+        - hermes (orchestrator)
+        - envoy / backends.yaml / generate_envoy_config.py
+        - partner_service / labs_service
+        - dashboard
+        - osp_common
+        - tests
+        - other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Include the exact commands you ran (e.g. which services were up, the request that failed).
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit / version
+      description: Output of `git rev-parse HEAD`, or the `osp-hermes` version if installed via pip.
+    validations:
+      required: true
