@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # The envoyproxy apt repo is unmaintained (see envoyproxy/envoy#21503);
+      # func-e is the project-recommended way to get a real envoy binary in CI.
+      # `func-e which` prints the downloaded binary's path so it can be
+      # symlinked onto PATH for direct `envoy ...` invocation (our tests spawn
+      # it as a plain subprocess, not through `func-e run`).
+      - name: Install Envoy (via func-e)
+        run: |
+          curl -L https://func-e.io/install.sh | bash -s -- -b "$HOME/.local/bin"
+          "$HOME/.local/bin/func-e" use 1.39.1
+          sudo ln -sf "$("$HOME/.local/bin/func-e" which)" /usr/local/bin/envoy
+          envoy --version
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Validate Envoy config generation
+        run: |
+          python -m scripts.generate_envoy_config
+          envoy --mode validate -c envoy/envoy.yaml
+
+      - name: Run tests
+        run: pytest tests/ -v
