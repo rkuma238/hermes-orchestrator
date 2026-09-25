@@ -25,7 +25,7 @@ def main():
     digest = hashlib.sha256(PAYLOAD_SRC.encode("utf-8")).hexdigest()
 
     manifest = {
-        "osp_version": "0.1",
+        "protocol_version": "0.1",
         "id": SKILL_ID,
         "version": VERSION,
         "name": "Reverse Text (labs)",

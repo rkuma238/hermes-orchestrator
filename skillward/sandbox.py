@@ -1,4 +1,4 @@
-"""Execution backends for OSP skills.
+"""Execution backends for Skillward skills.
 
 IMPORTANT — read spec/SPEC.md's "Sandboxing" section before deploying this
 against untrusted third-party skills. SubprocessSandboxRunner gives you
@@ -93,7 +93,7 @@ class SubprocessSandboxRunner(SandboxRunner):
 
         env = {"PATH": "/usr/bin:/bin", **request.granted_env}
 
-        with tempfile.TemporaryDirectory(prefix="osp-skill-") as scratch_dir:
+        with tempfile.TemporaryDirectory(prefix="skillward-skill-") as scratch_dir:
             try:
                 proc = subprocess.run(
                     [sys.executable, "-I", "-S", "-c", _BOOTSTRAP],

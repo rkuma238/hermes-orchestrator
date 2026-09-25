@@ -18,11 +18,11 @@ import jsonschema
 import pytest
 import yaml
 
-from hermes import HermesOrchestrator
-from hermes.orchestrator import CapabilityDeniedError
-from hermes.registry_client import ChecksumMismatchError
-from hermes.sandbox import SkillExecutionError
 from scripts.generate_envoy_config import build_config
+from skillward import SkillwardOrchestrator
+from skillward.orchestrator import CapabilityDeniedError
+from skillward.registry_client import ChecksumMismatchError
+from skillward.sandbox import SkillExecutionError
 
 REPO_ROOT = Path(__file__).parent.parent
 GATEWAY_URL = "http://127.0.0.1:18010"
@@ -121,7 +121,7 @@ def account():
 
 @pytest.fixture()
 def orchestrator(account):
-    with HermesOrchestrator(GATEWAY_URL, api_key=account["api_key"]) as orch:
+    with SkillwardOrchestrator(GATEWAY_URL, api_key=account["api_key"]) as orch:
         yield orch
 
 
@@ -156,8 +156,8 @@ def test_skill_router_partner_backend(orchestrator):
 
 
 def test_skill_router_labs_backend(orchestrator):
-    result = orchestrator.invoke("labs-reverse-text", "1.0.0", {"text": "hermes"})
-    assert result == {"reversed": "semreh"}
+    result = orchestrator.invoke("labs-reverse-text", "1.0.0", {"text": "skillward"})
+    assert result == {"reversed": "drawlliks"}
 
 
 def test_input_schema_rejects_bad_input(orchestrator):
@@ -173,7 +173,7 @@ def test_capability_denied_when_not_allowlisted(orchestrator):
 
 
 def test_capability_granted_when_allowlisted(account):
-    with HermesOrchestrator(
+    with SkillwardOrchestrator(
         GATEWAY_URL, api_key=account["api_key"], allowed_capabilities={"net:https://evil.example/*"}
     ) as orch:
         manifest = orch.registry.get_manifest("example-echo", "1.0.0")

@@ -1,4 +1,4 @@
-"""Factory for a minimal OSP skill backend: serves GET .../{id}/{version}/manifest
+"""Factory for a minimal Skillward skill backend: serves GET .../{id}/{version}/manifest
 and .../payload out of a local skills_store, enforcing the shared
 visibility/ACL check (is_authorized). Every non-primary skill backend
 (partner_service, labs_service, and any future one) is just a few lines

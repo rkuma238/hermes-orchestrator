@@ -11,6 +11,6 @@
 
 - [ ] `pytest tests/ -v` passes locally
 - [ ] If `envoy/backends.yaml` changed, `envoy/envoy.yaml` was regenerated (`python -m scripts.generate_envoy_config`) and committed
-- [ ] If the manifest shape changed, `spec/skill-manifest.schema.json` and `hermes/manifest.py` were updated together
+- [ ] If the manifest shape changed, `spec/skill-manifest.schema.json` and `skillward/manifest.py` were updated together
 - [ ] New capability/visibility/auth behavior has a test that fails without the fix
 - [ ] `ruff check .` passes

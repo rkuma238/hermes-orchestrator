@@ -1,4 +1,4 @@
-"""Hermes: reference orchestrator for the Open Skill Protocol.
+"""Skillward: reference orchestrator for the Skillward Protocol.
 
 Ties together discover -> fetch -> verify -> capability-check -> execute.
 """
@@ -14,7 +14,7 @@ from .manifest import SkillManifest, SkillSummary
 from .registry_client import RegistryClient
 from .sandbox import SandboxRequest, SandboxRunner, SubprocessSandboxRunner
 
-log = logging.getLogger("hermes")
+log = logging.getLogger("skillward")
 
 
 class CapabilityDeniedError(Exception):
@@ -25,8 +25,8 @@ class SchemaValidationError(Exception):
     """Raised when input or output doesn't match the manifest's declared schema."""
 
 
-class HermesOrchestrator:
-    """Discovers, fetches, verifies, and executes OSP skills against a registry.
+class SkillwardOrchestrator:
+    """Discovers, fetches, verifies, and executes Skillward skills against a registry.
 
     `allowed_capabilities` is this deployment's policy: the set of capability
     strings it is willing to grant to *any* skill, independent of what a
@@ -44,7 +44,7 @@ class HermesOrchestrator:
         require_signature: bool = False,
     ):
         """`gateway_url` should point at the Envoy gateway (e.g.
-        http://127.0.0.1:10000), not the registry directly — every OSP
+        http://127.0.0.1:10000), not the registry directly — every Skillward
         endpoint now requires authentication, which only the gateway
         enforces. `api_key` is required for anything but the registry's
         public /accounts signup route."""
@@ -126,7 +126,7 @@ class HermesOrchestrator:
     def close(self) -> None:
         self.registry.close()
 
-    def __enter__(self) -> HermesOrchestrator:
+    def __enter__(self) -> SkillwardOrchestrator:
         return self
 
     def __exit__(self, *exc) -> None:

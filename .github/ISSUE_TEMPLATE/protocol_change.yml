@@ -1,5 +1,5 @@
 name: Protocol change proposal
-description: Propose a change to the Open Skill Protocol itself (spec/SPEC.md, spec/skill-manifest.schema.json) — not a reference-implementation bug.
+description: Propose a change to the Skillward Protocol itself (spec/SPEC.md, spec/skill-manifest.schema.json) — not a reference-implementation bug.
 labels: ["protocol"]
 body:
   - type: markdown
@@ -25,6 +25,6 @@ body:
     id: compat
     attributes:
       label: Compatibility impact
-      description: Does this need a new osp_version? Would existing manifests/orchestrators still work?
+      description: Does this need a new protocol_version? Would existing manifests/orchestrators still work?
     validations:
       required: true

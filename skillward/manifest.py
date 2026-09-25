@@ -1,4 +1,4 @@
-"""Pydantic models for the Open Skill Protocol (OSP) manifest.
+"""Pydantic models for the Skillward Protocol manifest.
 
 Mirrors spec/skill-manifest.schema.json — see spec/SPEC.md for the full
 protocol description.
@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-OSP_VERSION = "0.1"
+PROTOCOL_VERSION = "0.1"
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -44,7 +44,7 @@ class Publisher(BaseModel):
 
 
 class SkillManifest(BaseModel):
-    osp_version: Literal["0.1"] = OSP_VERSION
+    protocol_version: Literal["0.1"] = PROTOCOL_VERSION
     id: str
     version: str
     name: str

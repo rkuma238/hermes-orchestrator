@@ -8,11 +8,11 @@ body:
       label: Component
       options:
         - registry_server
-        - hermes (orchestrator)
+        - skillward (orchestrator)
         - envoy / backends.yaml / generate_envoy_config.py
         - partner_service / labs_service
         - dashboard
-        - osp_common
+        - skillward_common
         - tests
         - other / not sure
     validations:
@@ -35,6 +35,6 @@ body:
     id: version
     attributes:
       label: Commit / version
-      description: Output of `git rev-parse HEAD`, or the `osp-hermes` version if installed via pip.
+      description: Output of `git rev-parse HEAD`, or the `skillward` version if installed via pip.
     validations:
       required: true

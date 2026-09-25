@@ -6,10 +6,10 @@ gateway scales past two backends via config, not code.
 
 from pathlib import Path
 
-from osp_common.skill_backend import make_skill_backend_app
+from skillward_common.skill_backend import make_skill_backend_app
 
 app = make_skill_backend_app(
-    title="OSP Labs Skill Backend",
+    title="Skillward Labs Skill Backend",
     route_prefix="/labs",
     store_dir=Path(__file__).parent / "skills_store",
 )

@@ -12,7 +12,7 @@ Then:
 
 import httpx
 
-from hermes import HermesOrchestrator
+from skillward import SkillwardOrchestrator
 
 GATEWAY_URL = "http://127.0.0.1:10000"
 
@@ -24,7 +24,7 @@ def main():
     account = resp.json()
     print(f"  account_id={account['account_id']}")
 
-    with HermesOrchestrator(GATEWAY_URL, api_key=account["api_key"]) as orch:
+    with SkillwardOrchestrator(GATEWAY_URL, api_key=account["api_key"]) as orch:
         print("\n== discover (requires auth now) ==")
         for skill in orch.discover():
             print(f"  {skill.id}@{skill.version} [{skill.visibility}] — {skill.description}")

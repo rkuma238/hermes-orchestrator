@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://openskillprotocol.org/schema/skill-manifest-0.1.json",
-  "title": "Open Skill Protocol (OSP) Skill Manifest",
+  "$id": "https://raw.githubusercontent.com/rkuma238/skillward/main/spec/skill-manifest-0.1.json",
+  "title": "Skillward Protocol Skill Manifest",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "osp_version",
+    "protocol_version",
     "id",
     "version",
     "name",
@@ -18,10 +18,10 @@
     "payload"
   ],
   "properties": {
-    "osp_version": {
+    "protocol_version": {
       "type": "string",
       "const": "0.1",
-      "description": "Version of the Open Skill Protocol this manifest conforms to."
+      "description": "Version of the Skillward Protocol this manifest conforms to."
     },
     "id": {
       "type": "string",

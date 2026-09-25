@@ -1,9 +1,9 @@
-# Hermes — reference orchestrator for the Open Skill Protocol (OSP)
+# Skillward — reference orchestrator for the Skillward Protocol
 
-[![CI](https://github.com/rkuma238/hermes-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/rkuma238/hermes-orchestrator/actions/workflows/ci.yml)
+[![CI](https://github.com/rkuma238/skillward/actions/workflows/ci.yml/badge.svg)](https://github.com/rkuma238/skillward/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-OSP is a small open protocol for **discovering, fetching, verifying, and
+Skillward is a small open protocol for **discovering, fetching, verifying, and
 executing** remote "skills" on demand, instead of statically installing every
 tool an agent might ever need. Full protocol spec: [`spec/SPEC.md`](spec/SPEC.md).
 Manifest schema: [`spec/skill-manifest.schema.json`](spec/skill-manifest.schema.json).
@@ -17,7 +17,7 @@ before opening a PR.
                      │  ext_authz -> /internal/authz on every request except POST /accounts        │
                      │  and /dashboard (public, unauthenticated)                                   │
   Orchestrator ──────┤                                                                              │
-  (hermes/)          │   /            ──────────────► registry_service :8079  (discovery, manifests,│
+  (skillward/)          │   /            ──────────────► registry_service :8079  (discovery, manifests,│
                       │                                 accounts, publish, dashboard, invocation log)│
                       │   /partner/*  ──────────────► partner_service  :8082  (independent backend) │
                       │   /labs/*     ──────────────► labs_service     :8083  (independent backend) │
@@ -40,10 +40,10 @@ worked examples. Onboarding a new registry is "add an entry to
   discovery, manifest/payload serving, publishing, invocation telemetry, and
   the publisher dashboard (mounted at `/dashboard`).
 - **`partner_service/`, `labs_service/`** — example independent skill
-  backends, each just a few lines calling `osp_common.skill_backend`.
-- **`osp_common/`** — the visibility/ACL check shared by every backend, so
+  backends, each just a few lines calling `skillward_common.skill_backend`.
+- **`skillward_common/`** — the visibility/ACL check shared by every backend, so
   it has exactly one implementation instead of being copy-pasted.
-- **`hermes/`** — the reference orchestrator: authenticates to the gateway,
+- **`skillward/`** — the reference orchestrator: authenticates to the gateway,
   discovers skills, verifies payload integrity by checksum before ever
   running them, enforces a deny-by-default capability policy, executes in an
   isolated subprocess, and wraps discovered skills as LangChain
@@ -74,7 +74,7 @@ publish a skill, watch its checksum and invocation log.
 ## Adding a new skill registry
 
 1. Write a backend (see `partner_service/main.py` for the ~6-line pattern
-   using `osp_common.skill_backend.make_skill_backend_app`) with its own
+   using `skillward_common.skill_backend.make_skill_backend_app`) with its own
    `skills_store/`.
 2. Add an entry to `envoy/backends.yaml`: name, host, port, `route_prefix`.
 3. `python -m scripts.generate_envoy_config` and restart Envoy.
@@ -86,11 +86,11 @@ whole point of the generator (see `scripts/generate_envoy_config.py`).
 
 ```python
 import httpx
-from hermes import HermesOrchestrator
-from hermes.langchain_tool import build_langchain_tools
+from skillward import SkillwardOrchestrator
+from skillward.langchain_tool import build_langchain_tools
 
 account = httpx.post("http://127.0.0.1:10000/accounts", json={"name": "my-agent"}).json()
-orchestrator = HermesOrchestrator(
+orchestrator = SkillwardOrchestrator(
     "http://127.0.0.1:10000",  # the gateway, not a registry directly
     api_key=account["api_key"],
     allowed_capabilities={"net:https://api.example.com/*"},  # deployment policy
@@ -145,5 +145,5 @@ accounts, and invocation telemetry.
 No payments or licensing layer yet (see `spec/SPEC.md`'s Non-goals) — this is
 the open discover/authenticate/authorize/fetch/verify/execute protocol and
 its Python reference implementation, aimed at eventually upstreaming the
-LangChain integration (`hermes/langchain_tool.py`) once it's had more
+LangChain integration (`skillward/langchain_tool.py`) once it's had more
 real-world use.

@@ -64,7 +64,7 @@ def main():
         digest = hashlib.sha256(payload_bytes).hexdigest()
 
         manifest = {
-            "osp_version": "0.1",
+            "protocol_version": "0.1",
             "id": skill["id"],
             "version": skill["version"],
             "name": skill["name"],
@@ -79,7 +79,7 @@ def main():
                 "url": f"/skills/{skill['id']}/{skill['version']}/payload",
                 "sha256": digest,
             },
-            "publisher": {"name": "osp-reference-examples"},
+            "publisher": {"name": "skillward-reference-examples"},
             "visibility": "public",
             "allowed_accounts": [],
         }

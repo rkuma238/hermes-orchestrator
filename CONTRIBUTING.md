@@ -7,8 +7,8 @@ surface area, and it's worth being clear about which one a change touches:
   changes here affect every implementation, not just this one. Propose
   protocol changes as an issue first, before a PR, so the design gets
   discussed independent of any particular code change.
-- **The reference implementation** (`registry_server/`, `hermes/`,
-  `envoy/`, `partner_service/`, `labs_service/`, `osp_common/`,
+- **The reference implementation** (`registry_server/`, `skillward/`,
+  `envoy/`, `partner_service/`, `labs_service/`, `skillward_common/`,
   `dashboard/`) — one working implementation of the protocol above. Bug
   fixes and improvements here can go straight to a PR.
 
@@ -17,7 +17,7 @@ surface area, and it's worth being clear about which one a change touches:
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pip install -e .          # installs the hermes package itself, editable
+pip install -e .          # installs the skillward package itself, editable
 
 brew install envoy        # macOS; see https://www.envoyproxy.io/docs/envoy/latest/start/install
                            # or use func-e (https://func-e.io) on Linux/CI
@@ -63,7 +63,7 @@ Don't hand-edit `envoy/envoy.yaml` — it's generated. Instead:
 3. Commit both `backends.yaml` and the regenerated `envoy.yaml`.
 
 See `labs_service/` for the minimal pattern (a few lines calling
-`osp_common.skill_backend.make_skill_backend_app`).
+`skillward_common.skill_backend.make_skill_backend_app`).
 
 ## Code style
 
@@ -73,7 +73,7 @@ See `labs_service/` for the minimal pattern (a few lines calling
 - Don't add error handling for cases that can't happen; don't add
   configuration knobs for hypothetical future needs.
 - Match the existing security posture: anything that decides *whether a
-  caller may see or run something* belongs in `osp_common` or the owning
+  caller may see or run something* belongs in `skillward_common` or the owning
   backend, not duplicated per-backend. See `spec/SPEC.md`'s design
   principles before changing where a check lives.
 
@@ -83,7 +83,7 @@ See `labs_service/` for the minimal pattern (a few lines calling
 - [ ] If you touched `envoy/backends.yaml`, `envoy/envoy.yaml` was
       regenerated and committed alongside it
 - [ ] If you touched the manifest shape, `spec/skill-manifest.schema.json`
-      and the `hermes/manifest.py` pydantic models were updated together
+      and the `skillward/manifest.py` pydantic models were updated together
 - [ ] New capability/visibility/auth behavior has a test that would fail
       without the fix (see the existing ACL and capability-denial tests for
       the pattern)

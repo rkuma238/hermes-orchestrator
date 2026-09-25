@@ -1,4 +1,4 @@
-"""Authorization logic shared by every backend behind the OSP gateway
+"""Authorization logic shared by every backend behind the Skillward gateway
 (registry_server, partner_service, and any future one). Deliberately small
 and imported rather than copy-pasted: this is the check that decides whether
 a private skill leaks to the wrong account, so it should have exactly one

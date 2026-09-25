@@ -1,5 +1,5 @@
 {
-  "osp_version": "0.1",
+  "protocol_version": "0.1",
   "id": "example-word-count",
   "version": "1.0.0",
   "name": "Word Count",
@@ -42,7 +42,7 @@
     "sha256": "66a3e13d3a70bbd2e06683ad05642de5507bd6c8c984c83b435b224dc3d2b383"
   },
   "publisher": {
-    "name": "osp-reference-examples"
+    "name": "skillward-reference-examples"
   },
   "visibility": "public",
   "allowed_accounts": []

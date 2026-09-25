@@ -1,4 +1,4 @@
-# Declarative list of skill backends behind the OSP gateway.
+# Declarative list of skill backends behind the Skillward gateway.
 #
 # To onboard a new skill registry/backend: add an entry below and re-run
 #     python -m scripts.generate_envoy_config

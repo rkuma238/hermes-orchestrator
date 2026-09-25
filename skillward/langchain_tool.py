@@ -1,4 +1,4 @@
-"""Expose OSP skills, discovered from a registry at agent-build time, as
+"""Expose Skillward skills, discovered from a registry at agent-build time, as
 LangChain StructuredTools — this is the piece meant to be upstreamed."""
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, create_model
 
 from .manifest import SkillSummary
-from .orchestrator import HermesOrchestrator
+from .orchestrator import SkillwardOrchestrator
 
 _JSON_TYPE_MAP: dict[str, type] = {
     "string": str,
@@ -35,7 +35,7 @@ def _schema_to_pydantic_model(name: str, schema: dict) -> type[BaseModel]:
     return create_model(name, __config__=ConfigDict(extra="allow"), **fields)
 
 
-def build_langchain_tool(orchestrator: HermesOrchestrator, skill: SkillSummary) -> StructuredTool:
+def build_langchain_tool(orchestrator: SkillwardOrchestrator, skill: SkillSummary) -> StructuredTool:
     """Wrap a single discovered skill as a LangChain StructuredTool.
 
     The tool fetches, verifies, and executes the skill's payload on first
@@ -54,6 +54,6 @@ def build_langchain_tool(orchestrator: HermesOrchestrator, skill: SkillSummary) 
     )
 
 
-def build_langchain_tools(orchestrator: HermesOrchestrator, query: str = "") -> list[StructuredTool]:
+def build_langchain_tools(orchestrator: SkillwardOrchestrator, query: str = "") -> list[StructuredTool]:
     """Discover skills matching `query` in the registry and wrap each as a Tool."""
     return [build_langchain_tool(orchestrator, s) for s in orchestrator.discover(query)]

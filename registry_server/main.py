@@ -1,4 +1,4 @@
-"""Reference OSP registry.
+"""Reference Skillward registry.
 
 Sits behind the Envoy gateway (envoy/envoy.yaml), which authenticates every
 request via ext_authz -> /internal/authz before forwarding it here with a
@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from osp_common import is_authorized, require_account
+from skillward_common import is_authorized, require_account
 
 from . import db
 
@@ -30,7 +30,7 @@ _DEFAULT_STORE = Path(__file__).parent / "skills_store"
 STORE = Path(os.environ["OSP_SKILLS_STORE"]) if "OSP_SKILLS_STORE" in os.environ else _DEFAULT_STORE
 DASHBOARD_DIR = Path(__file__).parent.parent / "dashboard"
 
-app = FastAPI(title="OSP Reference Registry", version="0.2")
+app = FastAPI(title="Skillward Reference Registry", version="0.2")
 
 # Dev convenience only, so the static dashboard (served from a different
 # origin/port) can call the registry directly while testing without Envoy.
@@ -193,7 +193,7 @@ def publish_skill(skill_id: str, version: str, body: dict, x_account_id: str | N
     (skill_dir / entrypoint_file).write_text(code)
 
     manifest = {
-        "osp_version": "0.1",
+        "protocol_version": "0.1",
         "id": skill_id,
         "version": version,
         "name": body["name"],

@@ -1,4 +1,4 @@
-"""Discovery + fetch side of OSP: talk to a registry, verify what it returns."""
+"""Discovery + fetch side of Skillward: talk to a registry, verify what it returns."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import httpx
 
 from .manifest import SkillManifest, SkillSummary
 
-log = logging.getLogger("hermes")
+log = logging.getLogger("skillward")
 
 
 class ChecksumMismatchError(Exception):
@@ -21,7 +21,7 @@ class SignatureMissingError(Exception):
 
 
 class RegistryClient:
-    """Reference OSP client: discover, fetch manifest, fetch+verify payload."""
+    """Reference Skillward client: discover, fetch manifest, fetch+verify payload."""
 
     def __init__(self, base_url: str, *, api_key: str | None = None, timeout: float = 10.0):
         self.base_url = base_url.rstrip("/")

@@ -1,5 +1,5 @@
 {
-  "osp_version": "0.1",
+  "protocol_version": "0.1",
   "id": "labs-reverse-text",
   "version": "1.0.0",
   "name": "Reverse Text (labs)",

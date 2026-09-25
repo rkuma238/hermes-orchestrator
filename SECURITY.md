@@ -13,14 +13,14 @@ fixes. There is no long-term support branch yet.
 
 Please **do not** open a public issue for a suspected vulnerability.
 
-Use [GitHub's private vulnerability reporting](https://github.com/rkuma238/hermes-orchestrator/security/advisories/new)
+Use [GitHub's private vulnerability reporting](https://github.com/rkuma238/skillward/security/advisories/new)
 ("Security" tab → "Report a vulnerability") so the report and any discussion
 stay private until a fix is available. If that's not accessible to you,
 open a regular issue asking a maintainer to open a private channel — don't
 include exploit details in it.
 
 Please include:
-- The component affected (`registry_server`, `hermes`, `envoy/`,
+- The component affected (`registry_server`, `skillward`, `envoy/`,
   `partner_service`/`labs_service`, `dashboard`, or the protocol spec
   itself).
 - Whether the issue is in the reference implementation (a code bug) or the
@@ -47,5 +47,5 @@ report — see `spec/SPEC.md`'s "Sandboxing" section and this repo's README
 
 Reports about the actual security boundary that *is* claimed — checksum
 verification, capability enforcement, the visibility/ACL check in
-`osp_common/authz.py`, or the gateway's `ext_authz` enforcement — are all
+`skillward_common/authz.py`, or the gateway's `ext_authz` enforcement — are all
 in scope and taken seriously.

@@ -3,13 +3,13 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "osp-hermes"
+name = "skillward"
 version = "0.1.0"
-description = "Reference orchestrator for the Open Skill Protocol (OSP): discover, verify, and execute remote skills through an authenticated gateway, with a LangChain tool adapter."
+description = "Reference orchestrator for the Skillward Protocol: discover, verify, and execute remote skills through an authenticated gateway, with a LangChain tool adapter."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
-authors = [{ name = "Open Skill Protocol contributors" }]
+authors = [{ name = "Skillward contributors" }]
 keywords = ["agents", "llm", "langchain", "tools", "skills", "mcp"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -32,15 +32,15 @@ langchain = ["langchain-core>=1.6"]
 dev = ["pytest>=9.0", "PyYAML>=6.0", "fastapi>=0.141", "uvicorn[standard]>=0.53", "ruff>=0.8"]
 
 [project.urls]
-Homepage = "https://github.com/rkuma238/hermes-orchestrator"
-Specification = "https://github.com/rkuma238/hermes-orchestrator/blob/main/spec/SPEC.md"
+Homepage = "https://github.com/rkuma238/skillward"
+Specification = "https://github.com/rkuma238/skillward/blob/main/spec/SPEC.md"
 
 [tool.setuptools.packages.find]
-include = ["hermes*"]
+include = ["skillward", "skillward.*"]
 
 [tool.pytest.ini_options]
 # tests/test_end_to_end.py imports scripts.generate_envoy_config, which lives
-# at the repo root, not inside the installed osp-hermes package. `python -m
+# at the repo root, not inside the installed skillward package. `python -m
 # pytest` happens to prepend cwd to sys.path and masks needing this; the
 # plain `pytest` entry point (what CI and most people actually run) does not.
 pythonpath = ["."]

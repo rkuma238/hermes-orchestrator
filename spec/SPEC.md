@@ -1,6 +1,6 @@
-# Open Skill Protocol (OSP) — v0.1 (draft)
+# Skillward Protocol — v0.1 (draft)
 
-OSP is a small, transport-agnostic protocol for **discovering, fetching, verifying,
+Skillward is a small, transport-agnostic protocol for **discovering, fetching, verifying,
 and executing** remote "skills" — small, self-contained pieces of code an
 orchestrator (an agent runtime, e.g. a LangChain agent) can pull in on demand
 instead of statically installing every possible tool ahead of time.
@@ -59,7 +59,7 @@ license to fetch (out of scope for v0.1 — see "Non-goals").
   there's no separate "buyer" credential in v0.1.
 - **Orchestrator** — the agent runtime that authenticates, discovers,
   fetches, verifies, and executes skills. Reference implementation:
-  `hermes/`.
+  `skillward/`.
 
 ## Protocol flow
 
@@ -126,7 +126,7 @@ declared capabilities, and I/O schema.
 `GET {manifest.payload.url}` — today, in the reference implementation, a raw
 Python file, served by the same registry and subject to the same
 authorization check as the manifest. The registry and payload host may be
-different services in a larger deployment (e.g. a CDN) — OSP doesn't require
+different services in a larger deployment (e.g. a CDN) — Skillward doesn't require
 them to be the same origin, but whatever serves the payload must apply the
 same visibility/ACL check the registry does.
 
@@ -158,7 +158,7 @@ ever available to the running skill.
 ### 6. Execution
 
 The orchestrator loads `entrypoint` (`file.py:function`) inside a sandbox
-(see `hermes/sandbox.py`), calls it with a JSON-serializable dict validated
+(see `skillward/sandbox.py`), calls it with a JSON-serializable dict validated
 against `input_schema`, and validates the returned dict against
 `output_schema`. See "Sandboxing" below for what isolation actually means in
 the reference implementation vs. what a production deployment should use.
@@ -172,7 +172,7 @@ concealment.
 
 ## Sandboxing (be honest about what this buys you)
 
-The v0.1 reference sandbox (`hermes/sandbox.py::SubprocessSandboxRunner`) runs
+The v0.1 reference sandbox (`skillward/sandbox.py::SubprocessSandboxRunner`) runs
 each invocation in a fresh `python -I -S` subprocess, with a scrubbed
 environment, a throwaway temp `cwd`, a wall-clock timeout, and an RLIMIT on
 memory/CPU. That stops *accidental* misbehavior and gives you process-level
