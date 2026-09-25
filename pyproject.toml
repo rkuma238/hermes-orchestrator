@@ -38,6 +38,13 @@ Specification = "https://github.com/rkuma238/hermes-orchestrator/blob/main/spec/
 [tool.setuptools.packages.find]
 include = ["hermes*"]
 
+[tool.pytest.ini_options]
+# tests/test_end_to_end.py imports scripts.generate_envoy_config, which lives
+# at the repo root, not inside the installed osp-hermes package. `python -m
+# pytest` happens to prepend cwd to sys.path and masks needing this; the
+# plain `pytest` entry point (what CI and most people actually run) does not.
+pythonpath = ["."]
+
 [tool.ruff]
 line-length = 115
 target-version = "py311"
