@@ -41,5 +41,5 @@ Initial reference implementation of the Open Skill Protocol (OSP).
   rejection, cross-account private-skill ACL enforcement, and invocation
   telemetry — run against a real multi-backend + Envoy stack, not mocks.
 
-[Unreleased]: https://github.com/OWNER/hermes-orchestrator/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/OWNER/hermes-orchestrator/releases/tag/v0.1.0
+[Unreleased]: https://github.com/rkuma238/hermes-orchestrator/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/rkuma238/hermes-orchestrator/releases/tag/v0.1.0

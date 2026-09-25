@@ -1,6 +1,6 @@
 # Hermes — reference orchestrator for the Open Skill Protocol (OSP)
 
-[![CI](https://github.com/OWNER/hermes-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/hermes-orchestrator/actions/workflows/ci.yml)
+[![CI](https://github.com/rkuma238/hermes-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/rkuma238/hermes-orchestrator/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 OSP is a small open protocol for **discovering, fetching, verifying, and

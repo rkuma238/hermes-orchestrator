@@ -13,7 +13,7 @@ fixes. There is no long-term support branch yet.
 
 Please **do not** open a public issue for a suspected vulnerability.
 
-Use [GitHub's private vulnerability reporting](https://github.com/OWNER/hermes-orchestrator/security/advisories/new)
+Use [GitHub's private vulnerability reporting](https://github.com/rkuma238/hermes-orchestrator/security/advisories/new)
 ("Security" tab → "Report a vulnerability") so the report and any discussion
 stay private until a fix is available. If that's not accessible to you,
 open a regular issue asking a maintainer to open a private channel — don't

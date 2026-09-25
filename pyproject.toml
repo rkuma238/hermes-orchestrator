@@ -32,8 +32,8 @@ langchain = ["langchain-core>=1.6"]
 dev = ["pytest>=9.0", "PyYAML>=6.0", "fastapi>=0.141", "uvicorn[standard]>=0.53", "ruff>=0.8"]
 
 [project.urls]
-Homepage = "https://github.com/OWNER/hermes-orchestrator"
-Specification = "https://github.com/OWNER/hermes-orchestrator/blob/main/spec/SPEC.md"
+Homepage = "https://github.com/rkuma238/hermes-orchestrator"
+Specification = "https://github.com/rkuma238/hermes-orchestrator/blob/main/spec/SPEC.md"
 
 [tool.setuptools.packages.find]
 include = ["hermes*"]
