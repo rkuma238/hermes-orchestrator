@@ -201,3 +201,29 @@ def test_publish_is_immediately_discoverable(orchestrator, account):
 
     result = orchestrator.invoke(skill_id, "1.0.0", {"x": 7})
     assert result == {"y": 7}
+
+
+def test_node_runtime_skill(orchestrator, account):
+    publish_resp = httpx.post(
+        f"{GATEWAY_URL}/skills/pytest-node-skill/1.0.0",
+        headers={"Authorization": f"Bearer {account['api_key']}"},
+        json={
+            "name": "Node Skill",
+            "description": "proves the node20 runtime works end to end, not just at the sandbox level",
+            "runtime": "node20",
+            "entrypoint": "payload.js:run",
+            "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+            "output_schema": {
+                "type": "object",
+                "properties": {"upper": {"type": "string"}},
+                "required": ["upper"],
+            },
+            "visibility": "public",
+            "code": "function run(input) { return { upper: input.text.toUpperCase() }; }",
+        },
+    )
+    assert publish_resp.status_code == 200
+    assert publish_resp.json()["runtime"] == "node20"
+
+    result = orchestrator.invoke("pytest-node-skill", "1.0.0", {"text": "skillward"})
+    assert result == {"upper": "SKILLWARD"}

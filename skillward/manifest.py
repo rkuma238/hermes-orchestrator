@@ -15,8 +15,12 @@ PROTOCOL_VERSION = "0.1"
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
-_ENTRYPOINT_RE = re.compile(r"^[A-Za-z0-9_./]+\.py:[A-Za-z_][A-Za-z0-9_]*$")
-_CAPABILITY_RE = re.compile(r"^(net|fs|env):.+$|^none$")
+_ENTRYPOINT_RE = re.compile(r"^[A-Za-z0-9_./]+\.(py|js):[A-Za-z_$][A-Za-z0-9_$]*$")
+# skill:<id> / skill:* lets a skill declare it needs to call another skill —
+# gated the same way as net:/env:, both by the calling manifest declaring it
+# and by the orchestrator's own allowed_capabilities policy. See
+# orchestrator.py's chain-call handling and spec/SPEC.md.
+_CAPABILITY_RE = re.compile(r"^(net|fs|env|skill):.+$|^none$")
 
 
 class ResourceLimits(BaseModel):
@@ -49,7 +53,7 @@ class SkillManifest(BaseModel):
     version: str
     name: str
     description: str
-    runtime: Literal["python3.11", "python3.12", "python3.13"]
+    runtime: Literal["python3.11", "python3.12", "python3.13", "node20"]
     entrypoint: str
     input_schema: dict
     output_schema: dict
@@ -78,7 +82,7 @@ class SkillManifest(BaseModel):
     @classmethod
     def _check_entrypoint(cls, v: str) -> str:
         if not _ENTRYPOINT_RE.fullmatch(v):
-            raise ValueError(f"invalid entrypoint: {v!r}, expected 'file.py:function'")
+            raise ValueError(f"invalid entrypoint: {v!r}, expected 'file.py:function' or 'file.js:function'")
         return v
 
     @field_validator("capabilities")

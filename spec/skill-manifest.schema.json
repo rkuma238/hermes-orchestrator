@@ -40,13 +40,13 @@
     },
     "runtime": {
       "type": "string",
-      "enum": ["python3.11", "python3.12", "python3.13"],
-      "description": "Execution runtime the payload targets. v0.1 supports CPython only; future versions may add 'wasm-component'."
+      "enum": ["python3.11", "python3.12", "python3.13", "node20"],
+      "description": "Execution runtime the payload targets. v0.1 supports CPython and Node.js; only the Python runtime supports chain calls (see 'skill:' capabilities). Future versions may add more runtimes and/or a wasm-component target."
     },
     "entrypoint": {
       "type": "string",
-      "pattern": "^[A-Za-z0-9_./]+\\.py:[A-Za-z_][A-Za-z0-9_]*$",
-      "description": "Path within the payload plus the callable to invoke, e.g. 'payload.py:run'. The callable receives a single JSON-serializable dict and returns a JSON-serializable dict."
+      "pattern": "^[A-Za-z0-9_./]+\\.(py|js):[A-Za-z_$][A-Za-z0-9_$]*$",
+      "description": "Path within the payload plus the callable to invoke, e.g. 'payload.py:run' or 'payload.js:run'. The callable receives a single JSON-serializable dict and returns a JSON-serializable dict."
     },
     "input_schema": {
       "type": "object",
@@ -58,12 +58,12 @@
     },
     "capabilities": {
       "type": "array",
-      "description": "Declared permissions this skill requires. Orchestrators MUST deny anything not listed here. Empty array means fully sandboxed with no network/filesystem access.",
+      "description": "Declared permissions this skill requires. Orchestrators MUST deny anything not listed here. Empty array means fully sandboxed with no network/filesystem/chain-call access.",
       "items": {
         "type": "string",
-        "pattern": "^(net|fs|env):.+$|^none$"
+        "pattern": "^(net|fs|env|skill):.+$|^none$"
       },
-      "examples": [[], ["net:https://api.example.com/*"], ["env:MY_API_KEY"]]
+      "examples": [[], ["net:https://api.example.com/*"], ["env:MY_API_KEY"], ["skill:labs-reverse-text"], ["skill:*"]]
     },
     "resource_limits": {
       "type": "object",

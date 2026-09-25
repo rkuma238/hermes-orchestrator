@@ -196,6 +196,35 @@ publish a skill, watch its checksum and invocation log.
 No changes to any other backend or to hand-written Envoy routes — that's the
 whole point of the generator (see `scripts/generate_envoy_config.py`).
 
+## Multi-language skills and one skill calling another
+
+Two runtimes ship today: `python3.1x` and `node20` — a skill's `entrypoint`
+is `payload.py:function` or `payload.js:function`, dispatched by its
+declared `runtime`. Adding a third language means adding a bootstrap script
+and a dispatch branch in `skillward/sandbox.py`; nothing in the orchestrator
+or protocol needs to change.
+
+A **Python** skill can call another skill by declaring `skill:<id>` (or
+`skill:*`) as a capability and using the `call_skill(id, version, input)`
+builtin available inside its execution namespace:
+
+```python
+def run(input_data):
+    doubled_input = call_skill("some-other-skill", "1.0.0", {"n": input_data["n"]})
+    return {"result": doubled_input["n"] * 2}
+```
+
+That chained call goes through the *full* protocol again — discovery,
+authorization, checksum verification, its own sandbox — not a shortcut. It's
+gated the same way as any other capability (declared by the skill, granted
+by the deployment) and capped at a max chain depth
+(`SkillwardOrchestrator.MAX_CHAIN_DEPTH`, 5 by default) so a cycle or a
+runaway chain can't recurse forever. The sandboxed subprocess never gets
+raw network access to make this call itself — it's a narrow request/response
+protocol back to the orchestrator, which is the only thing actually able to
+decide whether the call is allowed. See spec/SPEC.md's "Chain calls" section
+for the full design. Only the Python runtime supports this today.
+
 ## Using discovered skills with your agent framework
 
 Every adapter does the same thing: discover skills from the registry, and

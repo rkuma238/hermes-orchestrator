@@ -25,6 +25,10 @@ class SchemaValidationError(Exception):
     """Raised when input or output doesn't match the manifest's declared schema."""
 
 
+class ChainDepthExceededError(Exception):
+    """Raised when a chain of skill-calling-skill exceeds SkillwardOrchestrator.MAX_CHAIN_DEPTH."""
+
+
 class SkillwardOrchestrator:
     """Discovers, fetches, verifies, and executes Skillward skills against a registry.
 
@@ -33,6 +37,13 @@ class SkillwardOrchestrator:
     skill's manifest asks for. A skill whose manifest requests something
     outside this set is refused before its payload is ever executed.
     """
+
+    #: Chain calls (a Python skill calling another skill via call_skill())
+    #: are capped at this depth so a cycle or a runaway chain can't recurse
+    #: forever. Each hop still goes through the full discover/verify/execute
+    #: pipeline and its own capability check — this is a backstop, not the
+    #: primary control.
+    MAX_CHAIN_DEPTH = 5
 
     def __init__(
         self,
@@ -56,11 +67,11 @@ class SkillwardOrchestrator:
     def discover(self, query: str = "", capability: str | None = None) -> list[SkillSummary]:
         return self.registry.discover(query, capability)
 
-    def invoke(self, skill_id: str, version: str, input_data: dict) -> dict:
+    def invoke(self, skill_id: str, version: str, input_data: dict, *, _chain_depth: int = 0) -> dict:
         manifest = self.registry.get_manifest(skill_id, version)
-        return self.invoke_manifest(manifest, input_data)
+        return self.invoke_manifest(manifest, input_data, _chain_depth=_chain_depth)
 
-    def invoke_manifest(self, manifest: SkillManifest, input_data: dict) -> dict:
+    def invoke_manifest(self, manifest: SkillManifest, input_data: dict, *, _chain_depth: int = 0) -> dict:
         self._check_capabilities(manifest)
 
         jsonschema.validate(instance=input_data, schema=manifest.input_schema)
@@ -75,6 +86,7 @@ class SkillwardOrchestrator:
 
         _, func = manifest.entrypoint_parts()  # v0.1 payloads are a single file
         granted_env = self._granted_env(manifest)
+        on_call_skill = self._make_on_call_skill(manifest, _chain_depth)
 
         try:
             result = self.sandbox.run(
@@ -84,6 +96,8 @@ class SkillwardOrchestrator:
                     input_data=input_data,
                     granted_env=granted_env,
                     limits=manifest.resource_limits,
+                    runtime=manifest.runtime,
+                    on_call_skill=on_call_skill,
                 )
             )
             jsonschema.validate(instance=result, schema=manifest.output_schema)
@@ -93,6 +107,33 @@ class SkillwardOrchestrator:
 
         self.registry.report_invocation(manifest.id, manifest.version, success=True)
         return result
+
+    def _make_on_call_skill(self, calling_manifest: SkillManifest, chain_depth: int):
+        """Builds the callback SandboxRequest.on_call_skill uses to service a
+        skill's call_skill() request. This — not the sandboxed subprocess —
+        is what actually decides whether a chained call is allowed: the
+        target must be in the *calling* skill's own declared capabilities
+        (skill:<id> or skill:*), which must in turn already be granted by
+        this deployment's allowed_capabilities (enforced in
+        _check_capabilities, same as any other capability prefix)."""
+        allowed_targets = {
+            cap.split(":", 1)[1] for cap in calling_manifest.capabilities if cap.startswith("skill:")
+        }
+
+        def on_call_skill(called_id: str, called_version: str, chained_input: dict) -> dict:
+            if called_id not in allowed_targets and "*" not in allowed_targets:
+                raise CapabilityDeniedError(
+                    f"{calling_manifest.id}@{calling_manifest.version} is not permitted to call "
+                    f"skill {called_id!r} (declare 'skill:{called_id}' or 'skill:*' in its capabilities)"
+                )
+            if chain_depth >= self.MAX_CHAIN_DEPTH:
+                raise ChainDepthExceededError(
+                    f"chain call from {calling_manifest.id}@{calling_manifest.version} to {called_id} "
+                    f"exceeded max chain depth ({self.MAX_CHAIN_DEPTH})"
+                )
+            return self.invoke(called_id, called_version, chained_input, _chain_depth=chain_depth + 1)
+
+        return on_call_skill
 
     def _check_capabilities(self, manifest: SkillManifest) -> None:
         for cap in manifest.capabilities:

@@ -172,13 +172,41 @@ per-deployment, which of those it's willing to grant — a manifest asking for
 `net:*` doesn't mean the orchestrator has to grant it. Nothing not listed is
 ever available to the running skill.
 
+### 5a. Chain calls (Python runtime only)
+
+A skill's `capabilities` list can include `skill:<id>` (permission to call
+one specific other skill) or `skill:*` (any skill) — checked the same way as
+every other capability: declared by the calling skill's own manifest *and*
+separately granted by the orchestrator's deployment policy. Neither alone is
+enough, same as `net:`/`env:`.
+
+A skill with a granted `skill:` capability gets a `call_skill(id, version,
+input)` builtin inside its execution namespace. Calling it re-enters the
+*full* discover→authenticate→authorize→fetch→verify→execute pipeline for the
+target skill — including its own checksum verification — not a shortcut. The
+call happens through a narrow, structured request/response channel back to
+the orchestrator (which is the only thing that can decide whether a call is
+allowed); the sandboxed subprocess never gets raw network access to reach
+the registry itself, chained or not.
+
+Two backstops against runaway chains: a max chain depth
+(`SkillwardOrchestrator.MAX_CHAIN_DEPTH`, 5 by default) enforced by the
+orchestrator on every hop, and the fact that each hop still goes through the
+same capability/authorization checks as a top-level call — a compromised or
+buggy skill can't use chaining to reach something it couldn't have called
+directly.
+
+Only the Python runtime supports this today (see `skillward/sandbox.py`);
+other runtimes execute in single-shot mode with no `call_skill` available.
+
 ### 6. Execution
 
-The orchestrator loads `entrypoint` (`file.py:function`) inside a sandbox
-(see `skillward/sandbox.py`), calls it with a JSON-serializable dict validated
-against `input_schema`, and validates the returned dict against
-`output_schema`. See "Sandboxing" below for what isolation actually means in
-the reference implementation vs. what a production deployment should use.
+The orchestrator loads `entrypoint` (`file.py:function` or `file.js:function`,
+dispatched by `manifest.runtime`) inside a sandbox (see `skillward/sandbox.py`),
+calls it with a JSON-serializable dict validated against `input_schema`, and
+validates the returned dict against `output_schema`. See "Sandboxing" below
+for what isolation actually means in the reference implementation vs. what a
+production deployment should use.
 
 ### 7. Teardown
 
@@ -217,8 +245,8 @@ orchestrator.
 - **Payment/licensing.** Out of scope for now. The manifest's `payload.url`
   can point at a licensed/gated endpoint later without changing this spec —
   that's a registry-side concern, not a protocol concern.
-- **Multi-language payloads.** v0.1 is Python-only (`runtime: python3.1x`).
-  Additional runtimes are additive: new `runtime` enum values, new
-  `SandboxRunner` implementations.
 - **Signature *requirement*.** Signing is supported but optional in v0.1;
   policy on whether to require it is left to the orchestrator deployment.
+- **Multi-file skill bundles.** Each skill's implementation is still a
+  single file (`payload.py` or `payload.js`) — no bundling multiple source
+  files or dependencies for one skill yet.
