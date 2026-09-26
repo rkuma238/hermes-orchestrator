@@ -14,6 +14,8 @@ reserved "_chain_context" key the orchestrator injects into every hop after
 the first (see test_chain_context_carries_prior_outputs below).
 """
 
+import json
+
 import httpx
 import pytest
 from conftest import GATEWAY_URL
@@ -298,3 +300,70 @@ def test_chain_call_hands_off_across_runtimes(chain_account):
     ) as orch:
         result = orch.invoke("chain-py-adder", "1.0.0", {"n": 10})
     assert result == {"n": 22}
+
+
+def test_text_skill_can_hand_off_via_call_next(chain_account):
+    # A text skill can't compute a hand-off dynamically — there's no code
+    # running, so it can't inspect its own input the way ADDER_CODE does —
+    # but it can declare a *fixed* one: if its own content is exactly the
+    # reserved call_next JSON shape, the orchestrator follows it exactly
+    # like any code skill's hand-off. See sandbox.py's _run_text.
+    api_key = chain_account["api_key"]
+    _publish(
+        api_key,
+        "text-chain-target",
+        "1.0.0",
+        code=DOUBLER_CODE,
+        description="the fixed target a text skill hands off to",
+    )
+
+    router_content = json.dumps({"call_next": {"id": "text-chain-target", "version": "1.0.0", "input": {"n": 21}}})
+    _publish(
+        api_key,
+        "text-chain-router",
+        "1.0.0",
+        capabilities=["skill:text-chain-target"],
+        code=router_content,
+        description="a text skill that always hands off to text-chain-target",
+        runtime="text",
+        entrypoint="router.json",
+        input_schema={"type": "object"},  # a text skill ignores its own input entirely
+    )
+
+    with SkillwardOrchestrator(
+        GATEWAY_URL, api_key=api_key, allowed_capabilities={"skill:text-chain-target"}
+    ) as orch:
+        result = orch.invoke("text-chain-router", "1.0.0", {})
+    assert result == {"n": 42}
+
+
+def test_text_skill_hand_off_still_enforces_capability_check(chain_account):
+    # Same denial semantics as a code skill's hand-off: declaring
+    # skill:<id> is what's checked, not the runtime that declares it.
+    api_key = chain_account["api_key"]
+    _publish(
+        api_key,
+        "text-chain-target-2",
+        "1.0.0",
+        code=DOUBLER_CODE,
+        description="a target a text skill tries to reach without permission",
+    )
+
+    router_content = json.dumps(
+        {"call_next": {"id": "text-chain-target-2", "version": "1.0.0", "input": {"n": 21}}}
+    )
+    _publish(
+        api_key,
+        "text-chain-router-undeclared",
+        "1.0.0",
+        capabilities=[],  # no skill: capability declared this time
+        code=router_content,
+        description="a text skill that tries to hand off without declaring it",
+        runtime="text",
+        entrypoint="router.json",
+        input_schema={"type": "object"},
+    )
+
+    with SkillwardOrchestrator(GATEWAY_URL, api_key=api_key, allowed_capabilities=set()) as orch:
+        with pytest.raises(CapabilityDeniedError, match="not permitted to hand off"):
+            orch.invoke("text-chain-router-undeclared", "1.0.0", {})

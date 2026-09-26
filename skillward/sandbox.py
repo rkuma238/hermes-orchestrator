@@ -254,8 +254,20 @@ class SubprocessSandboxRunner(SandboxRunner):
     def _run_text(self, request: SandboxRequest) -> dict:
         # No subprocess, no capability surface: there's no code here to run,
         # so there's nothing to isolate. The entrypoint file's own content is
-        # the answer; any other bundled files are simply not surfaced.
-        return {"text": request.files[request.entrypoint_file]}
+        # the answer — *unless* that content is itself exactly the reserved
+        # call_next JSON shape (see orchestrator.py), in which case this is a
+        # static, code-free hand-off: a text skill can't compute a dynamic
+        # decision, but it can declare a fixed one. Anything else (including
+        # invalid JSON, which is the ordinary case — plain prose isn't JSON
+        # at all) is returned verbatim as {"text": ...}.
+        content = request.files[request.entrypoint_file]
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            return {"text": content}
+        if isinstance(parsed, dict) and set(parsed.keys()) == {"call_next"}:
+            return parsed
+        return {"text": content}
 
     def _run_python(self, request: SandboxRequest) -> dict:
         envelope = json.dumps(

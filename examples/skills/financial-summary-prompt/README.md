@@ -23,10 +23,12 @@ network; it just returns its own content verbatim.
 
 ## How it's used
 
-A text skill can't hand off via `call_next` — returning its own content
-*is* what it does, always, unconditionally. So it isn't a hop in the
-`pdf-fetcher` → `pdf-summarizer` chain; it's fetched separately, by the
-orchestrator, before the chain starts:
+This particular skill's content is plain prose, not the reserved
+`call_next` JSON shape (see README.md's "Chain calls" section — a text
+skill *can* hand off, but only if its content is exactly that shape), so it
+always returns itself verbatim rather than handing off. It isn't a hop in
+the `pdf-fetcher` → `pdf-summarizer` chain, then; it's fetched separately,
+by the orchestrator, before the chain starts:
 
 ```python
 prompt = orchestrator.invoke("financial-summary-prompt", "1.0.0", {})["text"]

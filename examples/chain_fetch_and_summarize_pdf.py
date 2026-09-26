@@ -7,11 +7,12 @@ fetch skill runs), this example expresses the *whole* pipeline as chained
 skills, with the orchestrator following the hand-off between them itself:
 
   1. financial-summary-prompt: a `text` skill (not code — see
-     examples/skills/financial-summary-prompt/README.md). Fetched once,
-     up front, not as part of the chain (a text skill can't call_next; it
-     only ever returns its own content). Its text becomes the system
-     prompt for step 3, steering the summary toward Revenue/EBITDA/Profit
-     instead of a generic instruction.
+     examples/skills/financial-summary-prompt/README.md). Fetched once, up
+     front, not as part of the chain — its content is plain prose, not the
+     reserved call_next JSON shape (see sandbox.py's _run_text), so it always
+     returns itself verbatim rather than handing off. Its text becomes the
+     system prompt for step 3, steering the summary toward
+     Revenue/EBITDA/Profit instead of a generic instruction.
   2. pdf-fetcher: fetches a PDF via __net_fetch__ (using body_base64 for
      byte-exact binary fidelity — body alone would corrupt it), extracts
      its text with a small dependency-free PDF text extractor (stdlib
@@ -117,16 +118,22 @@ def main():
         "pdf-fetcher",
         {
             "name": "PDF Fetcher",
-            "description": "Fetches a PDF and hands its extracted text off to pdf-summarizer",
+            "description": "Fetches a PDF and hands its extracted text off to a summarizer skill",
             "runtime": "python3.13",
             "entrypoint": "run.py:run",
             "input_schema": {
                 "type": "object",
-                "properties": {"url": {"type": "string"}, "system_prompt": {"type": "string"}},
+                "properties": {
+                    "url": {"type": "string"},
+                    "next_skill_id": {"type": "string"},
+                    "system_prompt": {"type": "string"},
+                },
                 "required": ["url"],
             },
             "output_schema": {"type": "object"},
-            "capabilities": [f"net:{pdf_host_pattern}", "skill:pdf-summarizer"],
+            # Both hand-off targets declared; allowed_capabilities below is
+            # what actually decides which is usable in this run.
+            "capabilities": [f"net:{pdf_host_pattern}", "skill:pdf-summarizer", "skill:pdf-summarizer-combo"],
             "resource_limits": {"timeout_seconds": 45, "max_memory_mb": 256},
             "visibility": "public",
             "code": FETCHER_CODE,
@@ -166,7 +173,11 @@ def main():
 
     allowed_capabilities = {
         f"net:{pdf_host_pattern}",
+        # Both granted even though this run only exercises one: every
+        # capability pdf-fetcher's manifest *declares* must be granted for
+        # it to run at all, whether or not this particular call uses it.
         "skill:pdf-summarizer",
+        "skill:pdf-summarizer-combo",
         f"net:{OPENROUTER_PATTERN}",
         "env:OPENROUTER_API_KEY",
     }

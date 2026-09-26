@@ -18,10 +18,13 @@ _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 # Code skills: "file.py:function" / "file.js:function" — something the
 # sandbox executes. Text skills have no function to call at all: the
 # payload file *is* the skill (a prompt/instructions/static content, in the
-# spirit of a SKILL.md), returned verbatim rather than run — see
-# sandbox.py's _run_text and SkillManifest.is_text below.
+# spirit of a SKILL.md), returned verbatim rather than run — unless that
+# content is itself the reserved call_next JSON shape, a declarative,
+# code-free hand-off to another skill (.json is for that case; .md/.txt are
+# for ordinary prose) — see sandbox.py's _run_text and SkillManifest.is_text
+# below.
 _CODE_ENTRYPOINT_RE = re.compile(r"^[A-Za-z0-9_./]+\.(py|js):[A-Za-z_$][A-Za-z0-9_$]*$")
-_TEXT_ENTRYPOINT_RE = re.compile(r"^[A-Za-z0-9_./]+\.(md|txt)$")
+_TEXT_ENTRYPOINT_RE = re.compile(r"^[A-Za-z0-9_./]+\.(md|txt|json)$")
 # skill:<id> / skill:* lets a skill declare it needs to call another skill —
 # gated the same way as net:/env:, both by the calling manifest declaring it
 # and by the orchestrator's own allowed_capabilities policy. See

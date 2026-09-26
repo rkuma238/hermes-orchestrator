@@ -1,12 +1,14 @@
 # pdf-fetcher
 
-Fetches a PDF, extracts its text, and hands off to `pdf-summarizer` via
-`call_next`. This is hop 1 of the two-skill chain in
-`examples/chain_fetch_and_summarize_pdf.py` — unlike
-`webpage-pdf-finder` + `find_and_summarize_pdfs.py` (where the orchestrator's
-own code does the downloading/extracting), this version puts the *entire*
-pipeline inside skills, with the orchestrator following the hand-off
-between them itself.
+Fetches a PDF, extracts its text, and hands off to a summarizer skill via
+`call_next`. This is hop 1 of the chain in both
+`examples/chain_fetch_and_summarize_pdf.py` (hands off to `pdf-summarizer`)
+and `examples/chain_fetch_and_summarize_pdf_combo.py` (hands off to
+`pdf-summarizer-combo`) — which one is a caller choice, not baked in (see
+"How it works" below). Unlike `webpage-pdf-finder` +
+`find_and_summarize_pdfs.py` (where the orchestrator's own code does the
+downloading/extracting), this skill puts the *entire* pipeline inside
+skills, with the orchestrator following the hand-off between them itself.
 
 ## Manifest
 
@@ -14,13 +16,16 @@ between them itself.
 |---|---|
 | `runtime` | `python3.13` |
 | `entrypoint` | `run.py:run` |
-| `capabilities` | `net:<pdf-host-glob>`, `skill:pdf-summarizer` |
+| `capabilities` | `net:<pdf-host-glob>`, `skill:pdf-summarizer`, `skill:pdf-summarizer-combo` — both hand-off targets declared; each script's own `allowed_capabilities` decides which is actually usable for that run |
 | `resource_limits.timeout_seconds` | `45` — generous, since the shared chain deadline (see spec/SPEC.md's "Chain calls") is computed from *this* hop's own budget and has to cover hop 2's OpenRouter round trip as well |
 
 **Input**
 ```json
-{"url": "https://example.com/report.pdf"}
+{"url": "https://example.com/report.pdf", "next_skill_id": "pdf-summarizer", "system_prompt": "(optional)"}
 ```
+`next_skill_id` defaults to `"pdf-summarizer"` if omitted. `system_prompt` is
+only meaningful when handing off to `pdf-summarizer` — `pdf-summarizer-combo`
+carries its own prompt bundled in, so it ignores it.
 
 **Output** (always a hand-off — this skill never returns a "real" result)
 ```json

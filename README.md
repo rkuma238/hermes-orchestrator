@@ -276,6 +276,23 @@ network access to reach the registry itself — a skill can only ask for a
 hand-off, never perform one. See spec/SPEC.md's "Chain calls" section for the
 full design.
 
+A `text` skill can hand off too — declaratively, since there's no code
+running to decide anything dynamically. If its entrypoint file's content is
+*exactly* the reserved `call_next` shape above, that's what gets returned
+instead of `{"text": ...}`, and the orchestrator follows it exactly like any
+code skill's hand-off:
+
+```json
+{"call_next": {"id": "some-other-skill", "version": "1.0.0", "input": {"n": 1}}}
+```
+
+This makes a text skill usable as a fixed, code-free redirect — a stable
+"entry point" name that always routes to a specific skill+version+input, or
+a catalog alias that can be repointed by republishing the alias, not the
+skill it points at. Ordinary prose (which isn't valid JSON) never matches
+this shape, so it changes nothing for a plain prompt/instructions skill like
+`financial-summary-prompt` above.
+
 ## Network access
 
 A skill granted `net:<url-glob>` capabilities gets `__net_fetch__` in its
@@ -344,12 +361,12 @@ the final result. The orchestrator follows the hand-off between them itself
 It also publishes a **`text` runtime** skill, `financial-summary-prompt` —
 not code, just instructions steering the summary toward Revenue, EBITDA,
 Profit, and other explicitly-stated figures rather than a generic "summarize
-this." A text skill can't `call_next` (returning its own content *is* what
-it does), so it's fetched once, up front, and its text is threaded through
-`pdf-fetcher`'s input into `pdf-summarizer`, which uses it as the LLM's
-system prompt. The prompt lives in the catalog as its own versioned,
-access-controlled skill, instead of a string hardcoded into whichever script
-happens to call the LLM.
+this." Its content is plain prose, not the reserved `call_next` shape (see
+below), so it always returns itself verbatim rather than handing off — it's
+fetched once, up front, and its text is threaded through `pdf-fetcher`'s
+input into `pdf-summarizer`, which uses it as the LLM's system prompt. The
+prompt lives in the catalog as its own versioned, access-controlled skill,
+instead of a string hardcoded into whichever script happens to call the LLM.
 
 ```bash
 export OPENROUTER_API_KEY=sk-or-...   # https://openrouter.ai/keys — required this time
@@ -362,6 +379,22 @@ API key and the PDF's raw bytes both have to enter sandboxed skill code,
 which the single-skill version deliberately avoids. Reach for that one by
 default; this one exists to show a real chain doing substantive work at each
 step, not just passing a value through.
+
+`examples/chain_fetch_and_summarize_pdf_combo.py` runs the identical chain
+but with the prompt bundled directly into the summarizer skill instead of
+fetched separately — a **combo** skill (see "Multi-language, plain-text, and
+chained skills" above and spec/SPEC.md's "Combo skills") pairing code and
+text as one versioned unit rather than two:
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+python -m examples.chain_fetch_and_summarize_pdf_combo https://example.com/report.pdf
+```
+
+Between the three scripts and `examples/skills/`, every combination this
+protocol supports for pairing text with code is demonstrated and actually
+run: pure code, pure text (including a text skill handing off on its own —
+see "Chain calls" above), and a combo bundling both together.
 
 ## Choosing a skill version
 

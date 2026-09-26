@@ -341,17 +341,29 @@ For code runtimes (`python3.1x`, `node20`), the orchestrator loads
 with a JSON-serializable dict validated against `input_schema`, and validates
 the returned dict against `output_schema`.
 
-The `text` runtime isn't code at all — `entrypoint` is a bare `file.md` or
-`file.txt` with no function to call, and the payload's own bytes *are* the
-result (`{"text": "<payload contents>"}`), still validated against
-`output_schema` like any other result. There's no subprocess, no capability
-surface, nothing to sandbox — a text skill is static content (a prompt,
-instructions, reference material, in the spirit of a SKILL.md) served
-through the same discover→authenticate→authorize→fetch→verify pipeline as
-any code skill, not a special case of it. This is deliberately *not* limited
-to binary/executable skills: a catalog of reusable prompts or instructions
-benefits from the same integrity and access-control story as a catalog of
-code.
+The `text` runtime isn't code at all — `entrypoint` is a bare `file.md`,
+`file.txt`, or `file.json` with no function to call, and the payload's own
+bytes *are* the result (`{"text": "<payload contents>"}`), still validated
+against `output_schema` like any other result. There's no subprocess, no
+capability surface, nothing to sandbox — a text skill is static content (a
+prompt, instructions, reference material, in the spirit of a SKILL.md)
+served through the same discover→authenticate→authorize→fetch→verify
+pipeline as any code skill, not a special case of it. This is deliberately
+*not* limited to binary/executable skills: a catalog of reusable prompts or
+instructions benefits from the same integrity and access-control story as a
+catalog of code.
+
+A text skill can still participate in a chain (see "5a. Chain calls"
+above) — just declaratively rather than dynamically, since there's no code
+running to decide anything at call time. If the entrypoint file's content is
+*exactly* the reserved `call_next` JSON shape, that's what's returned
+instead of `{"text": ...}`, and the orchestrator follows it exactly like any
+code skill's hand-off. This makes a text skill a fixed, code-free redirect:
+useful for a stable "entry point" name that always routes to a specific
+skill+version+input, or for repointing a catalog alias without publishing
+new code. Ordinary prose (which isn't valid JSON at all) never matches this
+shape, so it doesn't change anything for a plain prompt/instructions skill —
+the two behaviors coexist based purely on what the content actually is.
 
 ### Combo skills (a script plus a companion text file)
 

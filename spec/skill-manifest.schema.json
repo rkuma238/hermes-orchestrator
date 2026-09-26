@@ -7,7 +7,7 @@
   "allOf": [
     {
       "if": { "properties": { "runtime": { "const": "text" } }, "required": ["runtime"] },
-      "then": { "properties": { "entrypoint": { "pattern": "^[A-Za-z0-9_./]+\\.(md|txt)$" } } },
+      "then": { "properties": { "entrypoint": { "pattern": "^[A-Za-z0-9_./]+\\.(md|txt|json)$" } } },
       "else": {
         "properties": {
           "entrypoint": { "pattern": "^[A-Za-z0-9_./]+\\.(py|js):[A-Za-z_$][A-Za-z0-9_$]*$" }
@@ -59,7 +59,7 @@
       "description": "For code runtimes: path within the payload plus the callable to invoke, e.g. 'payload.py:run' or 'payload.js:run' — the callable receives a single JSON-serializable dict and returns a JSON-serializable dict. For the 'text' runtime: a bare path with no callable, e.g. 'skill.md' or 'notes.txt' — there's nothing to call, the file's contents are the result.",
       "oneOf": [
         { "pattern": "^[A-Za-z0-9_./]+\\.(py|js):[A-Za-z_$][A-Za-z0-9_$]*$" },
-        { "pattern": "^[A-Za-z0-9_./]+\\.(md|txt)$" }
+        { "pattern": "^[A-Za-z0-9_./]+\\.(md|txt|json)$" }
       ]
     },
     "input_schema": {

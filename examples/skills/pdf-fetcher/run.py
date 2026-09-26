@@ -37,4 +37,10 @@ def run(input_data):
     if "system_prompt" in input_data:
         next_input["system_prompt"] = input_data["system_prompt"]
 
-    return {"call_next": {"id": "pdf-summarizer", "version": "1.0.0", "input": next_input}}
+    # Which summarizer to hand off to is the caller's choice, not baked in —
+    # examples/chain_fetch_and_summarize_pdf.py uses the default
+    # (pdf-summarizer, paired with a separately-fetched text skill);
+    # examples/chain_fetch_and_summarize_pdf_combo.py points at
+    # pdf-summarizer-combo instead (its prompt bundled directly into it).
+    next_skill_id = input_data.get("next_skill_id", "pdf-summarizer")
+    return {"call_next": {"id": next_skill_id, "version": "1.0.0", "input": next_input}}
