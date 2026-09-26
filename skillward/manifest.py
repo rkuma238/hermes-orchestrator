@@ -65,6 +65,13 @@ class SkillManifest(BaseModel):
     output_schema: dict
     capabilities: list[str] = Field(default_factory=list)
     resource_limits: ResourceLimits = Field(default_factory=ResourceLimits)
+    # Non-empty for a multi-file "combo" skill (e.g. a script plus a
+    # companion SKILL.md-style text file, published together as one unit):
+    # the relative paths bundled alongside entrypoint's own file, all
+    # exposed to the running entrypoint via the reserved `__bundle__`
+    # mapping (see sandbox.py). Empty for an ordinary single-file skill —
+    # nothing about how it's published or executed changes.
+    bundle_files: list[str] = Field(default_factory=list)
     payload: PayloadRef
     publisher: Publisher | None = None
     visibility: Literal["public", "private"] = "private"
@@ -96,6 +103,12 @@ class SkillManifest(BaseModel):
             raise ValueError(
                 f"invalid entrypoint: {self.entrypoint!r}, expected 'file.py:function' or 'file.js:function'"
             )
+        if self.bundle_files:
+            entrypoint_file, _ = self.entrypoint_parts()
+            if entrypoint_file not in self.bundle_files:
+                raise ValueError(
+                    f"entrypoint file {entrypoint_file!r} is not among bundle_files {self.bundle_files!r}"
+                )
         return self
 
     @field_validator("capabilities")

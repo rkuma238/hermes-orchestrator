@@ -298,9 +298,42 @@ to binary/executable skills: a catalog of reusable prompts or instructions
 benefits from the same integrity and access-control story as a catalog of
 code.
 
+### Combo skills (a script plus a companion text file)
+
+A skill isn't necessarily one file. `bundle_files` on the manifest, when
+non-empty, means this `(id, version)` was published as a multi-file bundle —
+the shape of a "typical" skill available today outside this protocol: a
+`SKILL.md`-style instructions file alongside one or more scripts, published
+and versioned together as one unit rather than as separate skills. The most
+common case (a script plus one companion text file) works the same way as
+any other combination of bundled files — there's no separate "combo"
+runtime, just `runtime: python3.1x` or `node20` with more than one file in
+the bundle.
+
+`POST /skills/{id}/{version}` accepts `files: {"<path>": "<content>", ...}`
+instead of (or as well as — `files` wins if both are given) the ordinary
+single-file `code` field. Every path must be a safe relative path (no
+leading `/`, no `..` segment) and `entrypoint`'s own file must be one of the
+keys; the registry rejects anything else with `400` before it's ever stored.
+The bundle is hashed and stored as one canonical JSON blob — `payload.sha256`
+covers the *entire* bundle, not just the entrypoint file, so tampering with a
+companion file is caught exactly like tampering with the entrypoint itself.
+Immutability (see "Publishing" above) applies to the whole bundle the same
+way it applies to a single file.
+
+Every file in the bundle — including the entrypoint's own — is exposed to
+the running entrypoint as `__bundle__`, a plain in-memory mapping from
+relative path to content (`__bundle__["SKILL.md"]` in Python,
+`__bundle__['SKILL.md']` in Node). This is deliberately *not* real filesystem
+access: nothing is written to disk for the running code to open by path, so
+a companion file is available without granting anything resembling an `fs:`
+capability just to read what was published alongside the code. An ordinary
+single-file skill is unaffected either way — internally it's just treated as
+a one-entry bundle, but nothing about how it's published, fetched, or
+executed changes for it.
+
 See "Sandboxing" below for what isolation actually means for code runtimes in
-the reference implementation vs. what a
-production deployment should use.
+the reference implementation vs. what a production deployment should use.
 
 ### 7. Teardown
 

@@ -253,6 +253,63 @@ def test_text_runtime_skill(orchestrator, account):
     assert result == {"text": "You are a helpful assistant. Always respond in a friendly tone."}
 
 
+def test_combo_skill_bundles_script_and_companion_text(orchestrator, account):
+    # The realistic "SKILL.md + scripts" shape: one skill, one version, two
+    # files — a script and a companion instructions file it can read at run
+    # time via __bundle__, published and fetched as a single verified unit.
+    publish_resp = httpx.post(
+        f"{GATEWAY_URL}/skills/pytest-combo-skill/1.0.0",
+        headers={"Authorization": f"Bearer {account['api_key']}"},
+        json={
+            "name": "Combo Skill",
+            "description": "a script bundled with a companion SKILL.md-style text file",
+            "runtime": "python3.13",
+            "entrypoint": "run.py:run",
+            "input_schema": {"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]},
+            "output_schema": {
+                "type": "object",
+                "properties": {"greeting": {"type": "string"}, "doubled": {"type": "integer"}},
+                "required": ["greeting", "doubled"],
+            },
+            "visibility": "public",
+            "files": {
+                "run.py": (
+                    "def run(input_data):\n"
+                    "    instructions = __bundle__['SKILL.md']\n"
+                    "    return {'greeting': instructions.strip(), 'doubled': input_data['n'] * 2}\n"
+                ),
+                "SKILL.md": "You are a doubling assistant.",
+            },
+        },
+    )
+    assert publish_resp.status_code == 200
+    assert sorted(publish_resp.json()["bundle_files"]) == ["SKILL.md", "run.py"]
+
+    result = orchestrator.invoke("pytest-combo-skill", "1.0.0", {"n": 21})
+    assert result == {"greeting": "You are a doubling assistant.", "doubled": 42}
+
+
+def test_combo_skill_rejects_unsafe_bundle_paths(account):
+    resp = httpx.post(
+        f"{GATEWAY_URL}/skills/pytest-combo-unsafe/1.0.0",
+        headers={"Authorization": f"Bearer {account['api_key']}"},
+        json={
+            "name": "Unsafe Combo",
+            "description": "tries to escape the skill directory via a bundle path",
+            "runtime": "python3.13",
+            "entrypoint": "run.py:run",
+            "input_schema": {"type": "object"},
+            "output_schema": {"type": "object"},
+            "visibility": "public",
+            "files": {
+                "run.py": "def run(input_data):\n    return {}\n",
+                "../../etc/passwd": "nope",
+            },
+        },
+    )
+    assert resp.status_code == 400
+
+
 def test_invoke_with_latest_resolves_to_newest_version(orchestrator, account):
     # A local skills directory has no equivalent of this: a file on disk is
     # just whatever happens to be checked out, with no live "give me

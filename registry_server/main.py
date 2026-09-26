@@ -14,7 +14,7 @@ import hashlib
 import json
 import os
 import threading
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from fastapi import FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +25,7 @@ from skillward_common import is_authorized, require_account
 
 from . import db
 
+_BUNDLE_FILENAME = "_bundle.json"  # where a multi-file combo skill's files dict is stored, per version
 _DEFAULT_STORE = Path(__file__).parent / "skills_store"
 # Overridable so tests (or a second registry instance) can publish into an
 # isolated directory instead of this repo's committed example skills_store.
@@ -113,8 +114,11 @@ def _load_store() -> tuple[dict[tuple[str, str], dict], dict[tuple[str, str], st
         manifest = json.loads(manifest_path.read_text())
         key = (manifest["id"], manifest["version"])
         manifests[key] = manifest
-        entrypoint_file = manifest["entrypoint"].split(":")[0]  # text entrypoints have no ":function"
-        payload_path = manifest_path.parent / entrypoint_file
+        if manifest.get("bundle_files"):
+            payload_path = manifest_path.parent / _BUNDLE_FILENAME
+        else:
+            entrypoint_file = manifest["entrypoint"].split(":")[0]  # text entrypoints have no ":function"
+            payload_path = manifest_path.parent / entrypoint_file
         if payload_path.exists():
             payloads[key] = payload_path.read_text()
     return manifests, payloads
@@ -246,10 +250,13 @@ def get_payload(skill_id: str, version: str, x_account_id: str | None = Header(d
     payload = _load_payload_or_none(skill_id, version)
     if payload is None:
         raise HTTPException(status_code=404, detail="payload file missing")
-    media_type = {
-        "node20": "application/javascript",
-        "text": "text/plain",
-    }.get(manifest["runtime"], "text/x-python")
+    if manifest.get("bundle_files"):
+        media_type = "application/json"
+    else:
+        media_type = {
+            "node20": "application/javascript",
+            "text": "text/plain",
+        }.get(manifest["runtime"], "text/x-python")
     return PlainTextResponse(payload, media_type=media_type)
 
 
@@ -266,14 +273,38 @@ def publish_skill(skill_id: str, version: str, body: dict, x_account_id: str | N
     if existing and (existing.get("publisher") or {}).get("account_id") != account_id:
         raise HTTPException(status_code=403, detail="skill@version already published by another account")
 
-    required = ["name", "description", "runtime", "entrypoint", "input_schema", "output_schema", "code"]
+    required = ["name", "description", "runtime", "entrypoint", "input_schema", "output_schema"]
     missing = [f for f in required if f not in body]
     if missing:
         raise HTTPException(status_code=400, detail=f"missing fields: {missing}")
+    if "files" not in body and "code" not in body:
+        raise HTTPException(status_code=400, detail="missing fields: ['code' or 'files']")
 
-    code: str = body["code"]
-    digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
     entrypoint_file = body["entrypoint"].split(":")[0]  # text entrypoints have no ":function"
+
+    # "files" publishes a multi-file "combo" skill (e.g. a script plus a
+    # companion SKILL.md-style text file) as one bundle; "code" is the
+    # ordinary single-file case, unchanged from v0.1. Bundle content is
+    # stored and hashed as one canonical JSON blob, so the wire format for
+    # an ordinary skill (the overwhelmingly common case) never has to
+    # change to accommodate the less common multi-file one.
+    if "files" in body:
+        files: dict[str, str] = body["files"]
+        for path in files:
+            parts = PurePosixPath(path).parts
+            if not path or path.startswith("/") or ".." in parts or any(p in ("", ".") for p in parts):
+                raise HTTPException(status_code=400, detail=f"unsafe file path in bundle: {path!r}")
+        if entrypoint_file not in files:
+            raise HTTPException(
+                status_code=400, detail=f"entrypoint file {entrypoint_file!r} not found in 'files'"
+            )
+        bundle_json = json.dumps(files, sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(bundle_json.encode("utf-8")).hexdigest()
+        bundle_files = sorted(files.keys())
+    else:
+        code: str = body["code"]
+        digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
+        bundle_files = []
 
     # A published (id, version)'s code is immutable: once a digest is set for
     # it, republishing different content under the same version is rejected
@@ -295,7 +326,10 @@ def publish_skill(skill_id: str, version: str, body: dict, x_account_id: str | N
 
     skill_dir = STORE / skill_id / version
     skill_dir.mkdir(parents=True, exist_ok=True)
-    (skill_dir / entrypoint_file).write_text(code)
+    if bundle_files:
+        (skill_dir / _BUNDLE_FILENAME).write_text(bundle_json)
+    else:
+        (skill_dir / entrypoint_file).write_text(code)
 
     manifest = {
         "protocol_version": "0.1",
@@ -309,6 +343,7 @@ def publish_skill(skill_id: str, version: str, body: dict, x_account_id: str | N
         "output_schema": body["output_schema"],
         "capabilities": body.get("capabilities", []),
         "resource_limits": body.get("resource_limits", {"timeout_seconds": 10, "max_memory_mb": 256}),
+        "bundle_files": bundle_files,
         "payload": {
             "url": f"/skills/{skill_id}/{version}/payload",
             "sha256": digest,  # computed server-side; the publisher cannot spoof this

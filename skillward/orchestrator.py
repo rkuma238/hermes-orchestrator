@@ -5,6 +5,7 @@ Ties together discover -> fetch -> verify -> capability-check -> execute.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -159,7 +160,18 @@ class SkillwardOrchestrator:
             manifest.payload.sha256[:12],
         )
 
-        _, func = manifest.entrypoint_parts()  # v0.1 payloads are a single file
+        entrypoint_file, func = manifest.entrypoint_parts()
+        # A non-empty bundle_files means this manifest was published with a
+        # multi-file "combo" bundle (see registry_server's publish_skill):
+        # the fetched payload is the whole bundle serialized as one JSON
+        # blob, not the entrypoint's raw content. An ordinary single-file
+        # skill's payload is just its own content, so it's wrapped into a
+        # one-entry files dict here rather than the registry/wire format
+        # needing to change for the common case.
+        if manifest.bundle_files:
+            files = json.loads(payload.decode("utf-8"))
+        else:
+            files = {entrypoint_file: payload.decode("utf-8")}
         granted_env = self._granted_env(manifest)
 
         remaining = deadline - time.monotonic()
@@ -184,7 +196,8 @@ class SkillwardOrchestrator:
         try:
             result = self.sandbox.run(
                 SandboxRequest(
-                    code=payload.decode("utf-8"),
+                    files=files,
+                    entrypoint_file=entrypoint_file,
                     function=func,
                     input_data=sandbox_input,
                     granted_env=granted_env,

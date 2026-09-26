@@ -14,15 +14,26 @@ namespace, and the subprocess exits when the call returns. This isn't a
 security control — it's just that a per-call subprocess has no reason to
 persist the code as a file.
 
+A skill isn't always a single file. `SandboxRequest.files` carries every
+file published with the skill (a single entry for an ordinary skill, more
+for a "combo" skill — e.g. a script plus a companion SKILL.md-style text
+file, bundled and versioned together); `entrypoint_file` says which one gets
+run. Every file in the bundle, including the entrypoint's own, is exposed to
+the running code as `__bundle__` — a plain in-memory mapping, not real
+filesystem access, so a companion file never has to be written to disk to be
+readable. Only the entrypoint file is ever compiled/executed; the rest are
+just data as far as this module is concerned.
+
 Three runtimes ship today: Python (`python3.1x`) and Node.js (`node20`) are
 single-shot code — one envelope in, one JSON result out, process exits. A
-`text` skill isn't code at all: its payload (a prompt, instructions, any
-static content — the spirit of a SKILL.md) is the entire result, returned
-verbatim with no subprocess, no capability surface, nothing to sandbox.
-Chain calls (see orchestrator.py) are driven entirely by the orchestrator
-inspecting a skill's *output* for a reserved `call_next` shape between hops
-— nothing in this module needs to know chaining exists at all, which is why
-it works identically for every runtime with no runtime-specific protocol.
+`text` skill isn't code at all: its entrypoint file's own content (a prompt,
+instructions, any static content — the spirit of a SKILL.md) is the entire
+result, returned verbatim with no subprocess, no capability surface, nothing
+to sandbox. Chain calls (see orchestrator.py) are driven entirely by the
+orchestrator inspecting a skill's *output* for a reserved `call_next` shape
+between hops — nothing in this module needs to know chaining exists at all,
+which is why it works identically for every runtime with no runtime-specific
+protocol.
 """
 
 from __future__ import annotations
@@ -42,7 +53,8 @@ import sys, json, types
 
 def main():
     envelope = json.loads(sys.stdin.read())
-    code = envelope["code"]
+    files = envelope["files"]
+    code = files[envelope["entrypoint_file"]]
     func_name = envelope["function"]
     input_data = envelope["input"]
 
@@ -56,6 +68,10 @@ def main():
             pass  # best-effort; not supported on every platform
 
     module = types.ModuleType("skill_payload")
+    # In-memory only, never written to disk: lets the entrypoint read a
+    # companion file (module.__bundle__["SKILL.md"], say) without this
+    # module needing any real filesystem access to provide it.
+    module.__dict__["__bundle__"] = files
     exec(compile(code, "<skill>", "exec"), module.__dict__)
     func = getattr(module, func_name)
     result = func(input_data)
@@ -76,9 +92,12 @@ process.stdin.on('data', d => inputData += d);
 process.stdin.on('end', () => {
   try {
     const envelope = JSON.parse(inputData);
-    const sandbox = {};
+    const code = envelope.files[envelope.entrypoint_file];
+    // Same in-memory-only bundle as the Python bootstrap: __bundle__ is a
+    // plain object, not a real file the running code could open by path.
+    const sandbox = { __bundle__: envelope.files };
     vm.createContext(sandbox);
-    new vm.Script(envelope.code, { filename: 'skill.js' }).runInContext(sandbox, { timeout: 30000 });
+    new vm.Script(code, { filename: 'skill.js' }).runInContext(sandbox, { timeout: 30000 });
     const fn = sandbox[envelope.function];
     if (typeof fn !== 'function') {
       throw new Error("function '" + envelope.function + "' not found in skill code");
@@ -99,7 +118,8 @@ class SkillExecutionError(Exception):
 
 @dataclass
 class SandboxRequest:
-    code: str
+    files: dict[str, str]
+    entrypoint_file: str
     function: str
     input_data: dict
     granted_env: dict[str, str]
@@ -131,13 +151,15 @@ class SubprocessSandboxRunner(SandboxRunner):
 
     def _run_text(self, request: SandboxRequest) -> dict:
         # No subprocess, no capability surface: there's no code here to run,
-        # so there's nothing to isolate. The payload itself is the answer.
-        return {"text": request.code}
+        # so there's nothing to isolate. The entrypoint file's own content is
+        # the answer; any other bundled files are simply not surfaced.
+        return {"text": request.files[request.entrypoint_file]}
 
     def _run_python(self, request: SandboxRequest) -> dict:
         envelope = json.dumps(
             {
-                "code": request.code,
+                "files": request.files,
+                "entrypoint_file": request.entrypoint_file,
                 "function": request.function,
                 "input": request.input_data,
                 "max_memory_mb": request.limits.max_memory_mb,
@@ -166,7 +188,14 @@ class SubprocessSandboxRunner(SandboxRunner):
         if not node_path:
             raise SkillExecutionError("node runtime requested but 'node' was not found on PATH")
 
-        envelope = json.dumps({"code": request.code, "function": request.function, "input": request.input_data})
+        envelope = json.dumps(
+            {
+                "files": request.files,
+                "entrypoint_file": request.entrypoint_file,
+                "function": request.function,
+                "input": request.input_data,
+            }
+        )
         env = {"PATH": "/usr/bin:/bin", **request.granted_env}
 
         with tempfile.TemporaryDirectory(prefix="skillward-skill-") as scratch_dir:

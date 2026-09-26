@@ -79,6 +79,12 @@
       },
       "examples": [[], ["net:https://api.example.com/*"], ["env:MY_API_KEY"], ["skill:labs-reverse-text"], ["skill:*"]]
     },
+    "bundle_files": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Non-empty for a multi-file 'combo' skill (e.g. a script plus a companion SKILL.md-style text file, published and versioned together as one unit): the relative paths bundled alongside entrypoint's own file. Empty for an ordinary single-file skill. Every bundled file is exposed to the running entrypoint via the reserved `__bundle__` in-memory mapping; see spec/SPEC.md's 'Combo skills' section."
+    },
     "resource_limits": {
       "type": "object",
       "additionalProperties": false,

@@ -229,6 +229,41 @@ access-control story as a catalog of code — that's not a special case
 Skillward carves out for text, it's the same protocol applied to a different
 kind of payload.
 
+A skill also doesn't have to be *only* one or the other. Publish with
+`files` instead of `code` to bundle a script together with a companion
+text file — the shape most "typical" skills outside this protocol actually
+take: a `SKILL.md`-style instructions file plus one or more scripts,
+versioned together as one unit:
+
+```python
+httpx.post(
+    f"{GATEWAY_URL}/skills/doubling-assistant/1.0.0",
+    headers=auth,
+    json={
+        "name": "Doubling Assistant",
+        "runtime": "python3.13",
+        "entrypoint": "run.py:run",
+        "input_schema": {...},
+        "output_schema": {...},
+        "files": {
+            "run.py": "def run(input_data):\n    return {'greeting': __bundle__['SKILL.md'], 'n': input_data['n'] * 2}\n",
+            "SKILL.md": "You are a doubling assistant.",
+        },
+    },
+)
+
+orchestrator.invoke("doubling-assistant", "1.0.0", {"n": 21})
+# {"greeting": "You are a doubling assistant.", "n": 42}
+```
+
+`__bundle__` is a plain in-memory mapping of every file published alongside
+the entrypoint (path → content) — not real filesystem access, so a companion
+file is readable without granting anything like an `fs:` capability just to
+see what was published with it. The whole bundle is hashed and verified as
+one unit, and an ordinary single-file skill is unaffected — it's just
+treated as a one-entry bundle internally, nothing about publishing or
+invoking it changes.
+
 A skill can hand off to another skill by *returning* a reserved shape instead
 of a real result — there's no live callback, no long-running process, and no
 runtime-specific protocol, so this works the same for every runtime:
