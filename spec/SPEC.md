@@ -138,22 +138,43 @@ otherwise, again to avoid confirming a private skill's existence. The
 manifest is the unit of trust: it carries the payload URL, its checksum,
 declared capabilities, and I/O schema.
 
-`{version}` may be an exact semver, or the literal string `latest` — resolved
-centrally by the registry to the highest published semver for that `id`, at
-call time. The returned manifest's own `version` field is always the
-concrete version that was resolved, never the literal string `latest`.
-`GET /skills/{id}/versions` lists every version of `id` this caller is
-authorized to see, newest first, for a caller that wants to choose a version
-explicitly rather than always taking whatever's current.
+`{version}` is one of three things, and only one of them is a caller
+decision:
+
+- An **exact semver** (`1.2.0`) — used as-is. A caller-side override for
+  reproducibility, not "the pin."
+- **`latest`** — always the highest published semver for that `id`, ignoring
+  anything pinned. Resolved centrally by the registry at call time.
+- **`pinned`** — whatever this `id`'s registry-side pin currently points at
+  (see "Pinning" below), falling back to `latest` if nothing has been
+  pinned. This is the one a caller should reach for by default.
+
+The returned manifest's own `version` field is always the concrete version
+that was resolved, never one of these three keywords. `GET
+/skills/{id}/versions` lists every version of `id` this caller is authorized
+to see, newest first.
+
+#### Pinning
+
+`POST /skills/{id}/pin` (body `{"version": "..."}`), `DELETE
+/skills/{id}/pin`, and `GET /skills/{id}/pin` control and read what
+`pinned` currently resolves to for `id`. Only the skill's owner (the account
+that published it) may set or clear the pin; any authenticated caller may
+read it. This makes version selection a **registry-side decision**, not a
+caller one: an agent that always calls with `pinned` picks up whatever the
+skill's owner has designated as current, without needing to know or repeat
+a specific version string anywhere in its own code, and without the
+registry's operators needing to touch every caller when they want to roll a
+skill forward (or back) — they just move the pin.
 
 This is a version-selection story a local skills directory has no equivalent
 for: a file on disk is just whatever happened to be checked out there, with
 no live relationship to what's actually current, and no way to ask for "the
-newest" without some separate process pulling updates onto that machine.
-Centralizing skills behind a registry turns "which version do I run" into a
-per-call choice — pin an exact version for reproducibility, or take `latest`
-to always get whatever's currently published — resolved the same way for
-every caller, rather than however each machine happens to be maintained.
+newest" (or "whatever's designated as current") without some separate
+process pulling updates onto that machine. Centralizing skills behind a
+registry turns "which version runs" into something the registry and the
+skill's owner control directly and can change at any time — not something
+baked into every caller's own code.
 
 ### 3. Payload fetch
 
@@ -292,8 +313,12 @@ call.
 
 `__net_fetch__` is the *only* thing "net:" grants; there is no ambient,
 unscoped internet access handed to a skill just because it declared
-something under `net:`. What that pattern-matched boundary is actually worth
-differs by runtime:
+something under `net:`. Its result carries both `body` (best-effort utf-8
+text) and `body_base64` (the exact response bytes) — fetching something
+binary (a PDF, an image) needs the latter, since decoding an arbitrary
+binary response as utf-8 corrupts it; `body` remains what most callers
+reach for when the response actually is text. What the pattern-matched
+boundary itself is worth differs by runtime:
 
 - **Node**: a hard boundary. The vm context a skill executes in starts with
   nothing else in it at all — no `require`, no global `fetch`, no `process`

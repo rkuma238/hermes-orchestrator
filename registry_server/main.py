@@ -102,14 +102,18 @@ def authz_check(_rest: str, authorization: str | None = Header(default=None)):
 # since publish is the only thing that ever changes them.
 # ---------------------------------------------------------------------------
 
+_PIN_FILENAME = "_pin.json"  # skill-level (not per-version): which version "pinned" currently resolves to
+
 _cache_lock = threading.Lock()
 _manifest_cache: dict[tuple[str, str], dict] | None = None
 _payload_cache: dict[tuple[str, str], str] | None = None
+_pin_cache: dict[str, str] | None = None
 
 
-def _load_store() -> tuple[dict[tuple[str, str], dict], dict[tuple[str, str], str]]:
+def _load_store() -> tuple[dict[tuple[str, str], dict], dict[tuple[str, str], str], dict[str, str]]:
     manifests: dict[tuple[str, str], dict] = {}
     payloads: dict[tuple[str, str], str] = {}
+    pins: dict[str, str] = {}
     for manifest_path in sorted(STORE.glob("*/*/manifest.json")):
         manifest = json.loads(manifest_path.read_text())
         key = (manifest["id"], manifest["version"])
@@ -121,37 +125,48 @@ def _load_store() -> tuple[dict[tuple[str, str], dict], dict[tuple[str, str], st
             payload_path = manifest_path.parent / entrypoint_file
         if payload_path.exists():
             payloads[key] = payload_path.read_text()
-    return manifests, payloads
+    for pin_path in sorted(STORE.glob(f"*/{_PIN_FILENAME}")):
+        pins[pin_path.parent.name] = json.loads(pin_path.read_text())["version"]
+    return manifests, payloads, pins
 
 
-def _get_caches() -> tuple[dict[tuple[str, str], dict], dict[tuple[str, str], str]]:
-    global _manifest_cache, _payload_cache
+def _get_caches() -> tuple[dict[tuple[str, str], dict], dict[tuple[str, str], str], dict[str, str]]:
+    global _manifest_cache, _payload_cache, _pin_cache
     with _cache_lock:
         if _manifest_cache is None:
-            _manifest_cache, _payload_cache = _load_store()
-        return _manifest_cache, _payload_cache
+            _manifest_cache, _payload_cache, _pin_cache = _load_store()
+        return _manifest_cache, _payload_cache, _pin_cache
 
 
 def _invalidate_cache() -> None:
-    global _manifest_cache, _payload_cache
+    global _manifest_cache, _payload_cache, _pin_cache
     with _cache_lock:
         _manifest_cache = None
         _payload_cache = None
+        _pin_cache = None
 
 
 def _load_all_manifests() -> list[dict]:
-    manifests, _ = _get_caches()
+    manifests, _, _ = _get_caches()
     return list(manifests.values())
 
 
 def _load_manifest_or_none(skill_id: str, version: str) -> dict | None:
-    manifests, _ = _get_caches()
+    manifests, _, _ = _get_caches()
     return manifests.get((skill_id, version))
 
 
 def _load_payload_or_none(skill_id: str, version: str) -> str | None:
-    _, payloads = _get_caches()
+    _, payloads, _ = _get_caches()
     return payloads.get((skill_id, version))
+
+
+def _get_skill_owner(skill_id: str) -> str | None:
+    manifests, _, _ = _get_caches()
+    for (sid, _version), manifest in manifests.items():
+        if sid == skill_id:
+            return (manifest.get("publisher") or {}).get("account_id")
+    return None
 
 
 def _semver_key(version: str) -> tuple[int, int, int]:
@@ -159,20 +174,40 @@ def _semver_key(version: str) -> tuple[int, int, int]:
     return (int(major), int(minor), int(patch))
 
 
-def _resolve_version(skill_id: str, version: str) -> str:
-    """Lets a caller pin an exact version, or ask for "latest" and have the
-    registry resolve it — a live, centrally-decided choice a local
-    filesystem skill has no equivalent for, since a file on disk is just
-    whatever happened to be checked out there, with no notion of "current".
-    Returns `version` unchanged if it isn't "latest" (including if it
-    doesn't exist — the normal 404 path handles that)."""
-    if version != "latest":
-        return version
-    manifests, _ = _get_caches()
+def _latest_version(skill_id: str) -> str | None:
+    manifests, _, _ = _get_caches()
     published_versions = [v for (sid, v) in manifests if sid == skill_id]
-    if not published_versions:
-        return version
-    return max(published_versions, key=_semver_key)
+    return max(published_versions, key=_semver_key) if published_versions else None
+
+
+def _resolve_version(skill_id: str, version: str) -> str:
+    """Three ways a caller can ask for a version, and only one of them is a
+    caller decision at all:
+
+    - An exact semver ("1.2.0") is used as-is — a caller-side override for
+      reproducibility, not "the pin".
+    - "latest" always resolves to the highest published semver, ignoring
+      whatever's pinned.
+    - "pinned" resolves to whatever this skill_id's *registry-side* pin
+      currently points at (set via POST /skills/{id}/pin by the skill's
+      owner) — falling back to "latest" if nothing has been pinned. This is
+      the one a caller should reach for by default: which version "pinned"
+      means is a decision the registry (and the skill's owner) makes, not
+      something baked into caller code.
+
+    Returns `version` unchanged if none of the above apply and the target
+    doesn't resolve to anything (including if the skill doesn't exist at
+    all) — the normal 404 path downstream handles that.
+    """
+    if version == "latest":
+        return _latest_version(skill_id) or version
+    if version == "pinned":
+        _, _, pins = _get_caches()
+        pinned = pins.get(skill_id)
+        if pinned and _load_manifest_or_none(skill_id, pinned):
+            return pinned
+        return _latest_version(skill_id) or version
+    return version
 
 
 # ---------------------------------------------------------------------------
@@ -221,11 +256,54 @@ def discover(
 @app.get("/skills/{skill_id}/versions")
 def list_skill_versions(skill_id: str, x_account_id: str | None = Header(default=None)) -> list[str]:
     account_id = require_account(x_account_id)
-    manifests, _ = _get_caches()
+    manifests, _, _ = _get_caches()
     versions = [v for (sid, v), m in manifests.items() if sid == skill_id and is_authorized(m, account_id)]
     if not versions:
         raise HTTPException(status_code=404, detail=f"no such skill {skill_id}")
     return sorted(versions, key=_semver_key, reverse=True)
+
+
+@app.get("/skills/{skill_id}/pin")
+def get_skill_pin(skill_id: str, x_account_id: str | None = Header(default=None)) -> dict:
+    require_account(x_account_id)
+    _, _, pins = _get_caches()
+    pinned = pins.get(skill_id)
+    if not pinned:
+        raise HTTPException(status_code=404, detail=f"{skill_id} has no pin set")
+    return {"version": pinned}
+
+
+@app.post("/skills/{skill_id}/pin")
+def set_skill_pin(skill_id: str, body: dict, x_account_id: str | None = Header(default=None)) -> dict:
+    account_id = require_account(x_account_id)
+    owner = _get_skill_owner(skill_id)
+    if owner is None:
+        raise HTTPException(status_code=404, detail=f"no such skill {skill_id}")
+    if owner != account_id:
+        raise HTTPException(status_code=403, detail="only the skill's owner can set its pin")
+
+    version = body.get("version")
+    if not version or not _load_manifest_or_none(skill_id, version):
+        raise HTTPException(status_code=404, detail=f"no such version {skill_id}@{version}")
+
+    (STORE / skill_id / _PIN_FILENAME).write_text(json.dumps({"version": version}))
+    _invalidate_cache()
+    return {"version": version}
+
+
+@app.delete("/skills/{skill_id}/pin")
+def clear_skill_pin(skill_id: str, x_account_id: str | None = Header(default=None)) -> dict:
+    account_id = require_account(x_account_id)
+    owner = _get_skill_owner(skill_id)
+    if owner is None:
+        raise HTTPException(status_code=404, detail=f"no such skill {skill_id}")
+    if owner != account_id:
+        raise HTTPException(status_code=403, detail="only the skill's owner can clear its pin")
+
+    pin_path = STORE / skill_id / _PIN_FILENAME
+    pin_path.unlink(missing_ok=True)
+    _invalidate_cache()
+    return {"ok": True}
 
 
 @app.get("/skills/{skill_id}/{version}/manifest")

@@ -4,6 +4,7 @@ partner_service + labs_service + Envoy, on dedicated test ports).
 Run with: pytest tests/ -v (from the project root, inside .venv)
 """
 
+import base64
 import copy
 import http.server
 import json
@@ -19,6 +20,11 @@ from skillward.orchestrator import CapabilityDeniedError
 from skillward.registry_client import ChecksumMismatchError
 from skillward.sandbox import SkillExecutionError
 
+# Includes byte values that aren't valid utf-8 on their own (e.g. a lone
+# 0x80-0xFF), so a test fetching this can tell body_base64 apart from body:
+# only the former survives it byte-for-byte.
+_BINARY_PAYLOAD = bytes(range(256))
+
 
 @pytest.fixture()
 def local_http_server():
@@ -26,6 +32,12 @@ def local_http_server():
     # network I/O happens, without depending on any external connectivity.
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
+            if self.path == "/binary":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.end_headers()
+                self.wfile.write(_BINARY_PAYLOAD)
+                return
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -404,6 +416,56 @@ def test_net_fetch_denied_when_url_does_not_match_granted_pattern(account, local
             orch.invoke("pytest-net-fetch-pattern-mismatch", "1.0.0", {"url": f"{local_http_server}/data"})
 
 
+def _publish_body_base64_skill(
+    api_key: str, skill_id: str, net_pattern: str, runtime: str, code: str, entrypoint: str
+):
+    resp = httpx.post(
+        f"{GATEWAY_URL}/skills/{skill_id}/1.0.0",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={
+            "name": "Net Fetch Binary",
+            "description": "proves body_base64 round-trips binary bytes exactly, unlike body",
+            "runtime": runtime,
+            "entrypoint": entrypoint,
+            "input_schema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
+            "output_schema": {
+                "type": "object",
+                "properties": {"body_base64": {"type": "string"}},
+                "required": ["body_base64"],
+            },
+            "capabilities": [f"net:{net_pattern}"],
+            "visibility": "public",
+            "code": code,
+        },
+    )
+    assert resp.status_code == 200
+
+
+def test_net_fetch_body_base64_preserves_binary_bytes(account, local_http_server):
+    # body (utf-8 decoded) would corrupt this payload; body_base64 must not.
+    api_key = account["api_key"]
+    pattern = f"{local_http_server}/*"
+    code = "def run(input_data):\n    resp = __net_fetch__(input_data['url'])\n    return {'body_base64': resp['body_base64']}\n"
+    _publish_body_base64_skill(api_key, "pytest-net-fetch-binary-py", pattern, "python3.13", code, "run.py:run")
+
+    with SkillwardOrchestrator(GATEWAY_URL, api_key=api_key, allowed_capabilities={f"net:{pattern}"}) as orch:
+        result = orch.invoke("pytest-net-fetch-binary-py", "1.0.0", {"url": f"{local_http_server}/binary"})
+
+    assert base64.b64decode(result["body_base64"]) == _BINARY_PAYLOAD
+
+
+def test_net_fetch_body_base64_preserves_binary_bytes_node_runtime(account, local_http_server):
+    api_key = account["api_key"]
+    pattern = f"{local_http_server}/*"
+    code = "async function run(input) {\n  const resp = await __net_fetch__(input.url);\n  return { body_base64: resp.body_base64 };\n}"
+    _publish_body_base64_skill(api_key, "pytest-net-fetch-binary-node", pattern, "node20", code, "run.js:run")
+
+    with SkillwardOrchestrator(GATEWAY_URL, api_key=api_key, allowed_capabilities={f"net:{pattern}"}) as orch:
+        result = orch.invoke("pytest-net-fetch-binary-node", "1.0.0", {"url": f"{local_http_server}/binary"})
+
+    assert base64.b64decode(result["body_base64"]) == _BINARY_PAYLOAD
+
+
 def test_invoke_with_latest_resolves_to_newest_version(orchestrator, account):
     # A local skills directory has no equivalent of this: a file on disk is
     # just whatever happens to be checked out, with no live "give me
@@ -435,6 +497,68 @@ def test_invoke_with_latest_resolves_to_newest_version(orchestrator, account):
 
     versions = orchestrator.list_versions(skill_id)
     assert versions == ["1.1.0", "1.0.0"]  # newest first
+
+
+def _publish_pin_check_skill(api_key: str, skill_id: str, version: str, n: int):
+    resp = httpx.post(
+        f"{GATEWAY_URL}/skills/{skill_id}/{version}",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={
+            "name": "Pin Check",
+            "description": "proves version='pinned' is resolved by the registry, not the caller",
+            "runtime": "python3.13",
+            "entrypoint": "payload.py:run",
+            "input_schema": {"type": "object"},
+            "output_schema": {"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]},
+            "visibility": "public",
+            "code": f"def run(input_data):\n    return {{'n': {n}}}\n",
+        },
+    )
+    assert resp.status_code == 200
+
+
+def test_invoke_with_pinned_defaults_to_latest_when_unpinned(orchestrator, account):
+    skill_id = "pytest-pin-unset"
+    _publish_pin_check_skill(account["api_key"], skill_id, "1.0.0", 1)
+    _publish_pin_check_skill(account["api_key"], skill_id, "1.1.0", 2)
+
+    assert orchestrator.get_pin(skill_id) is None
+    assert orchestrator.invoke(skill_id, "pinned", {}) == {"n": 2}
+
+
+def test_set_pin_makes_pinned_resolve_to_that_version_even_when_a_newer_one_exists(orchestrator, account):
+    skill_id = "pytest-pin-set"
+    _publish_pin_check_skill(account["api_key"], skill_id, "1.0.0", 1)
+    _publish_pin_check_skill(account["api_key"], skill_id, "1.1.0", 2)
+
+    orchestrator.set_pin(skill_id, "1.0.0")
+    assert orchestrator.get_pin(skill_id) == "1.0.0"
+
+    # "pinned" now means the older version - a registry-side decision, made
+    # once, not something every call site has to know or repeat.
+    assert orchestrator.invoke(skill_id, "pinned", {}) == {"n": 1}
+    # "latest" still bypasses the pin entirely.
+    assert orchestrator.invoke(skill_id, "latest", {}) == {"n": 2}
+
+    orchestrator.clear_pin(skill_id)
+    assert orchestrator.get_pin(skill_id) is None
+    assert orchestrator.invoke(skill_id, "pinned", {}) == {"n": 2}
+
+
+def test_pin_can_only_be_set_or_cleared_by_the_skills_owner(orchestrator, account):
+    skill_id = "pytest-pin-owner-check"
+    _publish_pin_check_skill(account["api_key"], skill_id, "1.0.0", 1)
+
+    other = httpx.post(f"{GATEWAY_URL}/accounts", json={"name": "pytest-pin-intruder"}).json()
+    with SkillwardOrchestrator(GATEWAY_URL, api_key=other["api_key"]) as intruder_orch:
+        with pytest.raises(httpx.HTTPStatusError, match="403"):
+            intruder_orch.set_pin(skill_id, "1.0.0")
+        with pytest.raises(httpx.HTTPStatusError, match="403"):
+            intruder_orch.clear_pin(skill_id)
+
+    # The owner's own call still works fine.
+    orchestrator.set_pin(skill_id, "1.0.0")
+    assert orchestrator.get_pin(skill_id) == "1.0.0"
 
 
 def _publish_immutability_skill(api_key: str, skill_id: str, *, code: str, visibility: str = "public"):

@@ -93,10 +93,23 @@ class SkillwardOrchestrator:
     def list_versions(self, skill_id: str) -> list[str]:
         return self.registry.list_versions(skill_id)
 
+    def get_pin(self, skill_id: str) -> str | None:
+        return self.registry.get_pin(skill_id)
+
+    def set_pin(self, skill_id: str, version: str) -> None:
+        self.registry.set_pin(skill_id, version)
+
+    def clear_pin(self, skill_id: str) -> None:
+        self.registry.clear_pin(skill_id)
+
     def invoke(self, skill_id: str, version: str, input_data: dict) -> dict:
-        """`version` may be an exact semver, or "latest" to always run
-        whatever's currently published — resolved centrally by the registry,
-        not by whatever happens to be sitting in a local skills directory."""
+        """`version` may be an exact semver (a caller-side override, used
+        as-is), "latest" (always the highest published semver), or
+        "pinned" — whatever this skill_id's registry-side pin currently
+        points at (see set_pin/clear_pin), falling back to "latest" if
+        nothing is pinned. "pinned" is the one to reach for by default:
+        which version that resolves to is a decision the registry and the
+        skill's owner make, not something to hardcode at every call site."""
         manifest = self.registry.get_manifest(skill_id, version)
         return self.invoke_manifest(manifest, input_data)
 

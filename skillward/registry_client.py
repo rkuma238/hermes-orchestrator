@@ -53,11 +53,13 @@ class RegistryClient:
         return [SkillSummary.model_validate(item) for item in resp.json()]
 
     def get_manifest(self, skill_id: str, version: str) -> SkillManifest:
-        """`version` may be an exact semver, or the literal string "latest" —
-        resolved centrally by the registry to whichever version is actually
-        current, rather than by whatever happens to be checked out locally.
-        The returned manifest's own `.version` is always the concrete,
-        resolved version, never the literal "latest"."""
+        """`version` may be an exact semver (a caller-side override, used
+        as-is), the literal string "latest" (always the highest published
+        semver), or "pinned" (whatever this skill_id's registry-side pin
+        currently points at — see set_pin/clear_pin — falling back to
+        "latest" if nothing is pinned). The returned manifest's own
+        `.version` is always the concrete, resolved version, never one of
+        these keywords."""
         resp = self._client.get(f"{self.base_url}/skills/{skill_id}/{version}/manifest")
         resp.raise_for_status()
         return SkillManifest.model_validate(resp.json())
@@ -67,6 +69,30 @@ class RegistryClient:
         resp = self._client.get(f"{self.base_url}/skills/{skill_id}/versions")
         resp.raise_for_status()
         return resp.json()
+
+    def get_pin(self, skill_id: str) -> str | None:
+        """The version `skill_id`'s "pinned" keyword currently resolves to,
+        or None if nothing has been pinned (in which case "pinned" behaves
+        like "latest")."""
+        resp = self._client.get(f"{self.base_url}/skills/{skill_id}/pin")
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()["version"]
+
+    def set_pin(self, skill_id: str, version: str) -> None:
+        """Points `skill_id`'s "pinned" keyword at `version`. Only the
+        skill's owner may do this — this is the registry-side control for
+        what an unqualified "give me the current version" call resolves to,
+        deliberately not something a caller decides per invocation."""
+        resp = self._client.post(f"{self.base_url}/skills/{skill_id}/pin", json={"version": version})
+        resp.raise_for_status()
+
+    def clear_pin(self, skill_id: str) -> None:
+        """Removes `skill_id`'s pin — "pinned" reverts to behaving like
+        "latest". Only the skill's owner may do this."""
+        resp = self._client.delete(f"{self.base_url}/skills/{skill_id}/pin")
+        resp.raise_for_status()
 
     def fetch_verified_payload(self, manifest: SkillManifest, *, require_signature: bool = False) -> bytes:
         """Fetch the payload bytes for a manifest and verify integrity before returning.

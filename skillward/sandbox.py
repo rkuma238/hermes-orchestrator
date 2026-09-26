@@ -39,7 +39,11 @@ A skill granted `net:<url-pattern>` capabilities (see orchestrator.py) gets a
 real, working `__net_fetch__(url, ...)` in its execution namespace, checked
 against exactly the patterns it was granted before any request goes out —
 today this is the *only* thing "net:" actually does; declaring it used to be
-checked at invocation time but had no effect once the skill was running. For
+checked at invocation time but had no effect once the skill was running. Its
+result carries both `body` (best-effort utf-8 text) and `body_base64` (the
+exact response bytes) — a skill fetching something binary (a PDF, say) needs
+the latter, since decoding an arbitrary binary response as utf-8 corrupts it.
+For
 Node, this is a hard boundary: the vm context a skill runs in starts with
 nothing else in it, so `__net_fetch__` is the *only* way out at all. For
 Python, it isn't — `-I -S` scrubs the environment but doesn't remove stdlib
@@ -83,14 +87,25 @@ def main():
     def __net_fetch__(url, method="GET", headers=None, body=None, timeout=10):
         if not any(fnmatch.fnmatch(url, pattern) for pattern in net_patterns):
             raise PermissionError(f"not granted net: access to {url!r}")
-        import urllib.error, urllib.request
+        import base64, urllib.error, urllib.request
         data = body.encode("utf-8") if isinstance(body, str) else body
         req = urllib.request.Request(url, method=method, headers=headers or {}, data=data)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return {"status": resp.status, "headers": dict(resp.headers), "body": resp.read().decode("utf-8", "replace")}
+                raw = resp.read()
+                status, resp_headers = resp.status, dict(resp.headers)
         except urllib.error.HTTPError as e:
-            return {"status": e.code, "headers": dict(e.headers or {}), "body": e.read().decode("utf-8", "replace")}
+            raw = e.read()
+            status, resp_headers = e.code, dict(e.headers or {})
+        # `body` is best-effort utf-8 text (lossy for binary responses like a
+        # PDF); `body_base64` is the exact bytes, for a skill that needs them
+        # byte-for-byte rather than decoded.
+        return {
+            "status": status,
+            "headers": resp_headers,
+            "body": raw.decode("utf-8", "replace"),
+            "body_base64": base64.b64encode(raw).decode("ascii"),
+        }
 
     module = types.ModuleType("skill_payload")
     # In-memory only, never written to disk: lets the entrypoint read a
@@ -134,9 +149,22 @@ function netFetch(netPatterns, url, options) {
       headers: options.headers || {},
       timeout: (options.timeout || 10) * 1000,
     }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+      // Collected as raw Buffer chunks (no res.setEncoding call), then
+      // decoded two ways: `body` as best-effort utf-8 text, `body_base64`
+      // as the exact bytes — the same body/body_base64 split as Python's
+      // __net_fetch__, needed so a binary response (e.g. a PDF) survives
+      // this call byte-for-byte for a skill that asks for it.
+      const chunks = [];
+      res.on('data', (chunk) => { chunks.push(chunk); });
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        resolve({
+          status: res.statusCode,
+          headers: res.headers,
+          body: buf.toString('utf8'),
+          body_base64: buf.toString('base64'),
+        });
+      });
     });
     req.on('error', reject);
     req.on('timeout', () => req.destroy(new Error('net_fetch timed out')));

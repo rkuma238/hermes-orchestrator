@@ -89,7 +89,7 @@ they're direct consequences of a skill never being a local file:
 | No revocation | Change a skill's visibility or remove it once, centrally — nothing to clean up per machine |
 | No audit trail | Invocation telemetry: who ran what, when, success/failure (`/accounts/{id}/invocations`) |
 | Version drift | One registry, one current version — every fetch gets what's actually published |
-| No skill SDLC | Publish a new version once; callers choose per-invocation to pin an exact version or pass `"latest"` and always get whatever's current — a live, centrally-resolved choice, not a per-machine sync problem |
+| No skill SDLC | Publish a new version once; the owner moves the registry-side pin (or leaves callers on `"latest"`) — a live, centrally-controlled rollout, not a per-machine sync problem |
 
 This isn't a compliance-checkbox pitch — it's the direct, mechanical answer
 to "what's running and who put it there," which local-file skill
@@ -322,6 +322,11 @@ inside the sandbox, before anything goes out. A skill granted no `net:`
 capability at all has no such function available to call. See the security
 model below for what this boundary actually guarantees per runtime.
 
+The result carries both `body` (best-effort utf-8 text) and `body_base64`
+(the exact response bytes) — fetch something binary, like a PDF, and `body`
+will be corrupted by the utf-8 decode; use `body_base64` and decode it
+yourself instead.
+
 ### Worked example: find PDFs on a page, then summarize them
 
 `examples/find_and_summarize_pdfs.py` puts `__net_fetch__` and the
@@ -345,24 +350,57 @@ The skill is granted `net:` access to exactly the host in the URL you pass
 that links to PDFs (a company filings page, a government reports index, an
 academic publications list) to see it work against something of your own.
 
+### Worked example: the same pipeline as a two-hop chain
+
+`examples/chain_fetch_and_summarize_pdf.py` expresses that same "fetch, then
+summarize" pipeline entirely as two chained skills instead — `pdf-fetcher`
+downloads a PDF (using `body_base64` for byte-exact binary fidelity — `body`
+alone would corrupt it), extracts its text with a small dependency-free
+extractor, and hands off to `pdf-summarizer` via `call_next`; `pdf-summarizer`
+calls Gemini through OpenRouter using an `env:`-granted API key and returns
+the summary as the final result. The orchestrator follows the hand-off
+between them itself — no glue code runs in between.
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...   # https://openrouter.ai/keys — required this time
+python -m examples.chain_fetch_and_summarize_pdf https://example.com/report.pdf
+```
+
+Worth being explicit about the trade-off this makes versus the single-skill
+version above: putting the whole pipeline inside skills means the OpenRouter
+API key and the PDF's raw bytes both have to enter sandboxed skill code,
+which the single-skill version deliberately avoids. Reach for that one by
+default; this one exists to show a real two-hop `call_next` chain doing
+substantive work at each step, not just passing a value through.
+
 ## Choosing a skill version
 
-Every call names a version explicitly — but that version doesn't have to be
-an exact pin. Pass `"latest"` instead of a semver string and the registry
-resolves it, centrally, to whichever version is actually current at call
-time:
+Every call names a version, but only one of the three ways to do that is a
+caller decision:
 
 ```python
-orchestrator.invoke("some-skill", "1.2.0", input_data)  # pinned, reproducible
-orchestrator.invoke("some-skill", "latest", input_data)  # always whatever's current
+orchestrator.invoke("some-skill", "1.2.0", input_data)  # exact override, for reproducibility
+orchestrator.invoke("some-skill", "latest", input_data)  # always the newest published version
+orchestrator.invoke("some-skill", "pinned", input_data)  # whatever the registry currently has pinned
 orchestrator.list_versions("some-skill")  # ["1.3.0", "1.2.0", "1.0.0"], newest first
 ```
 
-This is the piece a local skills directory has no equivalent for: a file on
-disk is just whatever happened to be checked out there, with no live
-"current" to ask for and no way to pin a version except by not updating. A
-registry makes both choices — pin, or always-latest — a per-call decision
-instead of a per-machine maintenance problem.
+**Pinning is a registry decision, not an orchestrator one.** `"pinned"` is
+the one to reach for by default — which version it resolves to is set by
+the skill's owner, centrally, not hardcoded into every call site:
+
+```python
+orchestrator.set_pin("some-skill", "1.2.0")  # owner only — "pinned" now means 1.2.0
+orchestrator.get_pin("some-skill")  # "1.2.0"
+orchestrator.clear_pin("some-skill")  # unpin — "pinned" now behaves like "latest"
+```
+
+This is the piece a local skills directory has no equivalent for: there's
+no live "current" to ask for on a filesystem, and no way to roll every
+caller onto a new version except updating each machine individually. Here,
+the skill's owner moves the pin once — via the registry, not by pushing a
+change to every agent that calls the skill — and every caller using
+`"pinned"` picks it up on its next call.
 
 ## Using discovered skills with your agent framework
 
