@@ -322,6 +322,29 @@ inside the sandbox, before anything goes out. A skill granted no `net:`
 capability at all has no such function available to call. See the security
 model below for what this boundary actually guarantees per runtime.
 
+### Worked example: find PDFs on a page, then summarize them
+
+`examples/find_and_summarize_pdfs.py` puts `__net_fetch__` and the
+skill/orchestrator split to work end-to-end, against a real website: one
+skill fetches a page and returns every PDF link on it — that's the *only*
+thing that runs inside the sandbox. Picking the most relevant links,
+downloading the actual PDFs, extracting their text, and summarizing each
+with an LLM all happen afterward, in the orchestrator's own trusted code,
+never inside the sandbox. That split is deliberate: an LLM API key and raw
+PDF bytes should never have to enter untrusted skill code.
+
+```bash
+brew install poppler                  # provides pdftotext, used for text extraction
+export OPENROUTER_API_KEY=sk-or-...   # https://openrouter.ai/keys — optional, omit to just list PDFs
+
+python -m examples.find_and_summarize_pdfs https://example.com/reports/
+```
+
+The skill is granted `net:` access to exactly the host in the URL you pass
+— nothing broader, and nothing standing between runs. Point it at any page
+that links to PDFs (a company filings page, a government reports index, an
+academic publications list) to see it work against something of your own.
+
 ## Choosing a skill version
 
 Every call names a version explicitly — but that version doesn't have to be
