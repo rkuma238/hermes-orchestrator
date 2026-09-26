@@ -1,8 +1,17 @@
-"""One skill invoking another via call_skill(), against the real registry +
-gateway stack from conftest.py — not just the direct sandbox-level checks
-already covered elsewhere. Publishes its own skills so the chain-call
-capability requirements are exercised for real, including denial and the
-chain-depth backstop.
+"""One skill handing off to another via the reserved call_next output shape,
+against the real registry + gateway stack from conftest.py — not just the
+direct sandbox-level checks already covered elsewhere. Publishes its own
+skills so the hand-off capability requirements are exercised for real,
+including denial and the chain-depth backstop.
+
+A skill can't get a chained skill's result back and keep computing (there's
+no live callback — see orchestrator.py's module docstring for why); it can
+only tail-call: return exactly {"call_next": {"id", "version", "input"}}
+instead of a real result, and the orchestrator picks up from there between
+hops. Anything a hop needs from earlier in the chain either has to be
+threaded through explicitly via call_next's "input", or read from the
+reserved "_chain_context" key the orchestrator injects into every hop after
+the first (see test_chain_context_carries_prior_outputs below).
 """
 
 import httpx
@@ -10,21 +19,35 @@ import pytest
 from conftest import GATEWAY_URL
 
 from skillward import SkillwardOrchestrator
-from skillward.orchestrator import CapabilityDeniedError
-from skillward.sandbox import SkillExecutionError
+from skillward.orchestrator import CapabilityDeniedError, ChainDepthExceededError
+from skillward.registry_client import ChecksumMismatchError
+
+_DEFAULT_SCHEMA = {"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]}
 
 
-def _publish(api_key: str, skill_id: str, version: str, *, capabilities=None, code: str, description: str):
+def _publish(
+    api_key: str,
+    skill_id: str,
+    version: str,
+    *,
+    capabilities=None,
+    code: str,
+    description: str,
+    runtime: str = "python3.13",
+    entrypoint: str = "payload.py:run",
+    input_schema: dict | None = None,
+    output_schema: dict | None = None,
+):
     resp = httpx.post(
         f"{GATEWAY_URL}/skills/{skill_id}/{version}",
         headers={"Authorization": f"Bearer {api_key}"},
         json={
             "name": skill_id,
             "description": description,
-            "runtime": "python3.13",
-            "entrypoint": "payload.py:run",
-            "input_schema": {"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]},
-            "output_schema": {"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]},
+            "runtime": runtime,
+            "entrypoint": entrypoint,
+            "input_schema": input_schema or _DEFAULT_SCHEMA,
+            "output_schema": output_schema or _DEFAULT_SCHEMA,
             "capabilities": capabilities or [],
             "visibility": "public",
             "code": code,
@@ -36,23 +59,29 @@ def _publish(api_key: str, skill_id: str, version: str, *, capabilities=None, co
 
 INCREMENTER_CODE = "def run(input_data):\n    return {'n': input_data['n'] + 1}\n"
 
-DOUBLER_CODE = (
+DOUBLER_CODE = "def run(input_data):\n    return {'n': input_data['n'] * 2}\n"
+
+# Hands off to chain-doubler instead of computing anything itself — the
+# increment-then-double result (10 + 1) * 2 == 22 now comes from two single-
+# purpose skills each doing one thing, rather than one skill calling another
+# and combining the result, which the trampoline model doesn't support.
+ADDER_CODE = (
     "def run(input_data):\n"
-    "    incremented = call_skill('chain-incrementer', '1.0.0', {'n': input_data['n']})\n"
-    "    return {'n': incremented['n'] * 2}\n"
+    "    return {'call_next': {'id': 'chain-doubler', 'version': '1.0.0', 'input': {'n': input_data['n'] + 1}}}\n"
 )
 
 SELF_CALLER_CODE = (
-    "def run(input_data):\n    return call_skill('chain-self-caller', '1.0.0', {'n': input_data['n'] + 1})\n"
+    "def run(input_data):\n"
+    "    return {'call_next': {'id': 'chain-self-caller', 'version': '1.0.0', 'input': {'n': input_data['n'] + 1}}}\n"
 )
 
 
 @pytest.fixture(scope="module")
 def chain_account():
-    # Module-scoped and shared: several tests below republish
-    # "chain-incrementer"@1.0.0 unchanged, which the registry only allows
-    # when the same account already owns it (see publish_skill's ownership
-    # check) — a fresh account per test would 403 on the second publish.
+    # Module-scoped and shared: several tests below republish the same
+    # skill ids unchanged, which the registry only allows when the same
+    # account already owns them (see publish_skill's ownership check) — a
+    # fresh account per test would 403 on the second publish.
     resp = httpx.post(f"{GATEWAY_URL}/accounts", json={"name": "chain-call-tests"})
     resp.raise_for_status()
     return resp.json()
@@ -60,92 +89,90 @@ def chain_account():
 
 def test_chain_call_succeeds_when_capability_granted(chain_account):
     api_key = chain_account["api_key"]
-    _publish(api_key, "chain-incrementer", "1.0.0", code=INCREMENTER_CODE, description="adds 1")
+    _publish(api_key, "chain-doubler", "1.0.0", code=DOUBLER_CODE, description="doubles n")
     _publish(
         api_key,
-        "chain-doubler",
+        "chain-adder",
         "1.0.0",
-        capabilities=["skill:chain-incrementer"],
-        code=DOUBLER_CODE,
-        description="calls chain-incrementer then doubles",
+        capabilities=["skill:chain-doubler"],
+        code=ADDER_CODE,
+        description="increments n, hands off to chain-doubler",
     )
 
-    with SkillwardOrchestrator(
-        GATEWAY_URL, api_key=api_key, allowed_capabilities={"skill:chain-incrementer"}
-    ) as orch:
-        result = orch.invoke("chain-doubler", "1.0.0", {"n": 10})
+    with SkillwardOrchestrator(GATEWAY_URL, api_key=api_key, allowed_capabilities={"skill:chain-doubler"}) as orch:
+        result = orch.invoke("chain-adder", "1.0.0", {"n": 10})
     assert result == {"n": 22}  # (10 + 1) * 2
 
 
 def test_chain_call_denied_when_not_declared_on_calling_skill(chain_account):
     api_key = chain_account["api_key"]
-    _publish(api_key, "chain-incrementer", "1.0.0", code=INCREMENTER_CODE, description="adds 1")
-    # No skill: capability declared this time.
+    _publish(api_key, "chain-doubler", "1.0.0", code=DOUBLER_CODE, description="doubles n")
+    # No skill: capability declared this time — the hand-off itself runs
+    # fine (nothing about running chain-adder needs a capability), but the
+    # orchestrator refuses to follow the call_next it returns.
     _publish(
         api_key,
-        "chain-doubler-undeclared",
+        "chain-adder-undeclared",
         "1.0.0",
         capabilities=[],
-        code=DOUBLER_CODE.replace("chain-incrementer", "chain-incrementer"),
-        description="tries to call chain-incrementer without declaring it",
+        code=ADDER_CODE,
+        description="tries to hand off to chain-doubler without declaring it",
     )
 
     with SkillwardOrchestrator(GATEWAY_URL, api_key=api_key, allowed_capabilities=set()) as orch:
-        with pytest.raises(SkillExecutionError, match="not permitted to call"):
-            orch.invoke("chain-doubler-undeclared", "1.0.0", {"n": 10})
+        with pytest.raises(CapabilityDeniedError, match="not permitted to hand off"):
+            orch.invoke("chain-adder-undeclared", "1.0.0", {"n": 10})
 
 
 def test_chain_call_denied_when_deployment_policy_refuses_it(chain_account):
     api_key = chain_account["api_key"]
-    _publish(api_key, "chain-incrementer", "1.0.0", code=INCREMENTER_CODE, description="adds 1")
+    _publish(api_key, "chain-doubler", "1.0.0", code=DOUBLER_CODE, description="doubles n")
     _publish(
         api_key,
-        "chain-doubler-2",
+        "chain-adder-2",
         "1.0.0",
-        capabilities=["skill:chain-incrementer"],
-        code=DOUBLER_CODE,
+        capabilities=["skill:chain-doubler"],
+        code=ADDER_CODE.replace("chain-adder", "chain-adder-2"),
         description="declares the capability but the deployment won't grant it",
     )
 
     # Deliberately empty allowed_capabilities: the *skill* declares
-    # skill:chain-incrementer, but this deployment refuses to grant it —
-    # same as any other capability prefix, checked before the skill runs.
+    # skill:chain-doubler, but this deployment refuses to grant it — same as
+    # any other capability prefix, checked before the skill even runs.
     with SkillwardOrchestrator(GATEWAY_URL, api_key=api_key, allowed_capabilities=set()) as orch:
         with pytest.raises(CapabilityDeniedError):
-            orch.invoke("chain-doubler-2", "1.0.0", {"n": 10})
+            orch.invoke("chain-adder-2", "1.0.0", {"n": 10})
 
 
 def test_chain_call_verifies_checksum_of_chained_skill(chain_account, monkeypatch):
     api_key = chain_account["api_key"]
-    _publish(api_key, "chain-incrementer", "1.0.0", code=INCREMENTER_CODE, description="adds 1")
+    _publish(api_key, "chain-doubler", "1.0.0", code=DOUBLER_CODE, description="doubles n")
     _publish(
         api_key,
-        "chain-doubler-3",
+        "chain-adder-3",
         "1.0.0",
-        capabilities=["skill:chain-incrementer"],
-        code=DOUBLER_CODE.replace("chain-doubler", "chain-doubler-3").replace(
-            "chain-incrementer", "chain-incrementer"
-        ),
-        description="chain call whose target payload gets tampered with mid-flight",
+        capabilities=["skill:chain-doubler"],
+        code=ADDER_CODE.replace("chain-adder", "chain-adder-3"),
+        description="hand-off whose target payload gets tampered with mid-flight",
     )
 
-    with SkillwardOrchestrator(
-        GATEWAY_URL, api_key=api_key, allowed_capabilities={"skill:chain-incrementer"}
-    ) as orch:
+    with SkillwardOrchestrator(GATEWAY_URL, api_key=api_key, allowed_capabilities={"skill:chain-doubler"}) as orch:
         real_get = orch.registry._client.get
 
         def tampered_get(url, *args, **kwargs):
             resp = real_get(url, *args, **kwargs)
-            if url.endswith("/chain-incrementer/1.0.0/payload"):
-                resp._content = resp.content.replace(b"+ 1", b"+ 999")
+            if url.endswith("/chain-doubler/1.0.0/payload"):
+                resp._content = resp.content.replace(b"* 2", b"* 999")
             return resp
 
         monkeypatch.setattr(orch.registry._client, "get", tampered_get)
 
-        # The chained call's own checksum verification must catch this —
-        # the tampering happens on the *nested* fetch, not the top-level one.
-        with pytest.raises(SkillExecutionError):
-            orch.invoke("chain-doubler-3", "1.0.0", {"n": 10})
+        # The hand-off target's own checksum verification must catch this.
+        # It's raised directly by the orchestrator's own fetch — there's no
+        # subprocess boundary between hops in this design — so it surfaces
+        # as the real ChecksumMismatchError, not wrapped in anything else.
+        with pytest.raises(ChecksumMismatchError):
+            orch.invoke("chain-adder-3", "1.0.0", {"n": 10})
 
 
 def test_chain_depth_limit_stops_recursion(chain_account):
@@ -156,22 +183,20 @@ def test_chain_depth_limit_stops_recursion(chain_account):
         "1.0.0",
         capabilities=["skill:*"],
         code=SELF_CALLER_CODE,
-        description="calls itself forever unless the depth limit stops it",
+        description="hands off to itself forever unless the depth limit stops it",
     )
 
     with SkillwardOrchestrator(GATEWAY_URL, api_key=api_key, allowed_capabilities={"skill:*"}) as orch:
-        with pytest.raises(SkillExecutionError, match="chain call depth exceeded|max chain depth"):
+        with pytest.raises(ChainDepthExceededError, match="exceeded max depth"):
             orch.invoke("chain-self-caller", "1.0.0", {"n": 0})
 
 
-def test_chain_call_reports_a_clear_error_for_unauthorized_error_type(chain_account):
-    # ChainDepthExceededError and CapabilityDeniedError raised *inside* the
-    # on_call_skill callback surface to the calling skill as a generic
-    # RuntimeError with the message preserved (the sandbox boundary can't
-    # carry Python exception types across the subprocess, only text) — and
-    # from there out to the caller as SkillExecutionError. Confirming the
-    # message text survives that round trip intact, since it's the only
-    # signal available at that point.
+def test_chain_call_errors_are_not_wrapped_by_a_sandbox_boundary(chain_account):
+    # There's no subprocess running while a hand-off between hops is being
+    # decided (the previous hop already returned and exited), so unlike the
+    # old interactive design, these errors don't need to cross a sandbox
+    # boundary at all — they're real, undegraded exception types, not a
+    # generic error wrapping a preserved message string.
     api_key = chain_account["api_key"]
     _publish(
         api_key,
@@ -179,9 +204,97 @@ def test_chain_call_reports_a_clear_error_for_unauthorized_error_type(chain_acco
         "1.0.0",
         capabilities=["skill:*"],
         code=SELF_CALLER_CODE.replace("chain-self-caller", "chain-self-caller-2"),
-        description="depth-limit message-preservation check",
+        description="depth-limit exception-type check",
     )
     with SkillwardOrchestrator(GATEWAY_URL, api_key=api_key, allowed_capabilities={"skill:*"}) as orch:
-        with pytest.raises(SkillExecutionError) as exc_info:
+        with pytest.raises(ChainDepthExceededError) as exc_info:
             orch.invoke("chain-self-caller-2", "1.0.0", {"n": 0})
-        assert "depth" in str(exc_info.value).lower()
+        assert exc_info.type is ChainDepthExceededError
+
+
+CONTEXT_FIRST_CODE = (
+    "def run(input_data):\n"
+    "    return {'call_next': {'id': 'chain-context-second', 'version': '1.0.0', 'input': {'n': input_data['n']}}}\n"
+)
+
+CONTEXT_SECOND_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "n": {"type": "integer"},
+        "chain_len": {"type": "integer"},
+        "prior_id": {"type": "string"},
+    },
+    "required": ["n", "chain_len", "prior_id"],
+}
+
+CONTEXT_SECOND_CODE = (
+    "def run(input_data):\n"
+    "    ctx = input_data.get('_chain_context', [])\n"
+    "    return {\n"
+    "        'n': input_data['n'],\n"
+    "        'chain_len': len(ctx),\n"
+    "        'prior_id': ctx[0]['id'] if ctx else 'none',\n"
+    "    }\n"
+)
+
+
+def test_chain_context_carries_prior_outputs(chain_account):
+    api_key = chain_account["api_key"]
+    _publish(
+        api_key,
+        "chain-context-second",
+        "1.0.0",
+        code=CONTEXT_SECOND_CODE,
+        description="reads _chain_context to see what ran before it",
+        output_schema=CONTEXT_SECOND_OUTPUT_SCHEMA,
+    )
+    _publish(
+        api_key,
+        "chain-context-first",
+        "1.0.0",
+        capabilities=["skill:chain-context-second"],
+        code=CONTEXT_FIRST_CODE,
+        description="hands off without knowing chain-context-second reads _chain_context",
+    )
+
+    with SkillwardOrchestrator(
+        GATEWAY_URL, api_key=api_key, allowed_capabilities={"skill:chain-context-second"}
+    ) as orch:
+        result = orch.invoke("chain-context-first", "1.0.0", {"n": 5})
+
+    # chain-context-first never put anything about itself into the "input"
+    # it forwarded — chain-context-second only knows a prior hop existed,
+    # and which skill it was, because the orchestrator injected that history
+    # itself, not because chain-context-first passed it along explicitly.
+    assert result["chain_len"] == 1
+    assert result["prior_id"] == "chain-context-first"
+
+
+NODE_DOUBLER_CODE = "function run(input) { return { n: input.n * 2 }; }"
+
+
+def test_chain_call_hands_off_across_runtimes(chain_account):
+    api_key = chain_account["api_key"]
+    _publish(
+        api_key,
+        "chain-node-doubler",
+        "1.0.0",
+        code=NODE_DOUBLER_CODE,
+        description="doubles n in node20 — the other end of a python hand-off",
+        runtime="node20",
+        entrypoint="payload.js:run",
+    )
+    _publish(
+        api_key,
+        "chain-py-adder",
+        "1.0.0",
+        capabilities=["skill:chain-node-doubler"],
+        code=ADDER_CODE.replace("chain-doubler", "chain-node-doubler").replace("chain-adder", "chain-py-adder"),
+        description="python skill handing off to a node skill",
+    )
+
+    with SkillwardOrchestrator(
+        GATEWAY_URL, api_key=api_key, allowed_capabilities={"skill:chain-node-doubler"}
+    ) as orch:
+        result = orch.invoke("chain-py-adder", "1.0.0", {"n": 10})
+    assert result == {"n": 22}

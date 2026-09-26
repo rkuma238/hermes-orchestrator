@@ -204,26 +204,37 @@ declared `runtime`. Adding a third language means adding a bootstrap script
 and a dispatch branch in `skillward/sandbox.py`; nothing in the orchestrator
 or protocol needs to change.
 
-A **Python** skill can call another skill by declaring `skill:<id>` (or
-`skill:*`) as a capability and using the `call_skill(id, version, input)`
-builtin available inside its execution namespace:
+A skill can hand off to another skill by *returning* a reserved shape instead
+of a real result — there's no live callback, no long-running process, and no
+runtime-specific protocol, so this works the same for every runtime:
 
 ```python
 def run(input_data):
-    doubled_input = call_skill("some-other-skill", "1.0.0", {"n": input_data["n"]})
-    return {"result": doubled_input["n"] * 2}
+    return {"call_next": {"id": "some-other-skill", "version": "1.0.0", "input": {"n": input_data["n"] + 1}}}
 ```
 
-That chained call goes through the *full* protocol again — discovery,
-authorization, checksum verification, its own sandbox — not a shortcut. It's
-gated the same way as any other capability (declared by the skill, granted
-by the deployment) and capped at a max chain depth
-(`SkillwardOrchestrator.MAX_CHAIN_DEPTH`, 5 by default) so a cycle or a
-runaway chain can't recurse forever. The sandboxed subprocess never gets
-raw network access to make this call itself — it's a narrow request/response
-protocol back to the orchestrator, which is the only thing actually able to
-decide whether the call is allowed. See spec/SPEC.md's "Chain calls" section
-for the full design. Only the Python runtime supports this today.
+A skill can only tail-call this way — it can't get the next skill's result
+back and keep computing on it in the same run, since its own process has
+already returned and exited by the time the next hop starts. A chain that
+needs to combine results expresses that as more single-purpose skills, each
+handing off with everything the next one needs already in `input`. Every hop
+after the first also gets a reserved `_chain_context` input key: the ordered
+output of every prior hop in the chain, not just whatever the immediately
+previous hop chose to forward, so a hop can see further back than one step
+without every skill in between having to thread that data through by hand.
+
+Following a hand-off is gated the same way as any other capability: the
+*calling* skill must declare `skill:<id>` (or `skill:*`), and the deployment
+must separately grant it. The orchestrator's own main loop — not the skill's
+code — decides whether to follow the hand-off, then runs the *full* protocol
+again for the target: discovery, authorization, its own checksum
+verification, its own sandbox. It's capped at a max chain depth
+(`SkillwardOrchestrator.MAX_CHAIN_DEPTH`, 5 by default) and bounded by one
+shared deadline across the whole chain, so a cycle or a runaway or slow chain
+can't recurse or stall forever. The sandboxed subprocess never gets raw
+network access to reach the registry itself — a skill can only ask for a
+hand-off, never perform one. See spec/SPEC.md's "Chain calls" section for the
+full design.
 
 ## Using discovered skills with your agent framework
 

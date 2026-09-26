@@ -198,32 +198,68 @@ per-deployment, which of those it's willing to grant — a manifest asking for
 `net:*` doesn't mean the orchestrator has to grant it. Nothing not listed is
 ever available to the running skill.
 
-### 5a. Chain calls (Python runtime only)
+### 5a. Chain calls
 
-A skill's `capabilities` list can include `skill:<id>` (permission to call
-one specific other skill) or `skill:*` (any skill) — checked the same way as
-every other capability: declared by the calling skill's own manifest *and*
-separately granted by the orchestrator's deployment policy. Neither alone is
-enough, same as `net:`/`env:`.
+A skill hands off to another skill by *returning* a reserved shape instead of
+a real result — there is no live callback and no skill process stays running
+while the next one executes:
 
-A skill with a granted `skill:` capability gets a `call_skill(id, version,
-input)` builtin inside its execution namespace. Calling it re-enters the
-*full* discover→authenticate→authorize→fetch→verify→execute pipeline for the
-target skill — including its own checksum verification — not a shortcut. The
-call happens through a narrow, structured request/response channel back to
-the orchestrator (which is the only thing that can decide whether a call is
-allowed); the sandboxed subprocess never gets raw network access to reach
-the registry itself, chained or not.
+```json
+{"call_next": {"id": "next-skill", "version": "1.0.0", "input": {"...": "..."}}}
+```
+
+A result is treated as a hand-off only if `call_next` is its *only* top-level
+key; anything else is validated against `output_schema` and returned as the
+real, final result. This means a skill can never get a chained skill's result
+back and keep computing on it in the same run — it can only tail-call. A
+chain that needs to combine an earlier result with more computation expresses
+that as separate skills: one skill hands off with everything the next one
+needs already folded into `input`, and/or reads what earlier hops returned
+from `_chain_context` (below).
+
+The orchestrator, not the skill's own code, decides whether a hand-off is
+followed. A skill's `capabilities` list can include `skill:<id>` (permission
+to hand off to one specific other skill) or `skill:*` (any skill) — checked
+the same way as every other capability: declared by the *calling* skill's own
+manifest *and* separately granted by the orchestrator's deployment policy.
+Neither alone is enough, same as `net:`/`env:`. The orchestrator checks this,
+fetches and verifies the target's manifest and payload — the full
+discover→authenticate→authorize→fetch→verify→execute pipeline again, not a
+shortcut — and runs it as the next hop, all from its own main loop. No
+sandboxed subprocess ever gets raw network access to reach the registry
+itself; a skill cannot self-service a hand-off, it can only ask for one.
+
+Every hop after the first receives `_chain_context`: a reserved input key,
+injected after the hop's own `input_schema` validation (so declaring it isn't
+required), holding the ordered list of `{"id", "version", "output"}` for every
+prior hop in this chain — not just whatever the immediately-previous hop
+chose to forward via `call_next`'s `input`. This lets a hop make decisions
+based on earlier results without every intermediate hop having to thread them
+through by hand.
+
+One shared wall-clock deadline governs an entire chain, computed once from
+the *first* skill's own `resource_limits.timeout_seconds` — a later hop's own
+`resource_limits` can only shrink its remaining share of that budget further,
+never extend the chain past the original deadline. This is why the loop lives
+in the orchestrator rather than inside a long-lived sandboxed process: one
+place enforces one deadline across every hop, instead of each hop getting an
+independent timeout that a long enough chain could exceed in aggregate.
 
 Two backstops against runaway chains: a max chain depth
 (`SkillwardOrchestrator.MAX_CHAIN_DEPTH`, 5 by default) enforced by the
-orchestrator on every hop, and the fact that each hop still goes through the
-same capability/authorization checks as a top-level call — a compromised or
-buggy skill can't use chaining to reach something it couldn't have called
-directly.
+orchestrator between every hop, and the fact that each hop still goes through
+the same capability/authorization checks as a top-level call — a compromised
+or buggy skill can't use chaining to reach something it couldn't have called
+directly. Both raise directly as `ChainDepthExceededError` /
+`CapabilityDeniedError` from the orchestrator's own loop — there's no
+subprocess boundary to cross between hops, so nothing needs to be degraded to
+a generic wrapped error to get the failure back to the caller.
 
-Only the Python runtime supports this today (see `skillward/sandbox.py`);
-other runtimes execute in single-shot mode with no `call_skill` available.
+This works identically for every runtime (`python3.1x`, `node20`, ...): the
+sandbox backend (`skillward/sandbox.py`) never interprets `call_next` at
+all — it just returns whatever the skill returned, and the orchestrator
+decides what it means. A hand-off from a Python skill to a Node skill (or
+vice versa) needs no special handling anywhere.
 
 ### 6. Execution
 
