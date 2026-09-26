@@ -330,16 +330,26 @@ The skill is granted `net:` access to exactly the host in the URL you pass
 that links to PDFs (a company filings page, a government reports index, an
 academic publications list) to see it work against something of your own.
 
-### Worked example: the same pipeline as a two-hop chain
+### Worked example: the same pipeline as a chain, plus a text-skill prompt
 
 `examples/chain_fetch_and_summarize_pdf.py` expresses that same "fetch, then
-summarize" pipeline entirely as two chained skills instead — `pdf-fetcher`
-downloads a PDF (using `body_base64` for byte-exact binary fidelity — `body`
-alone would corrupt it), extracts its text with a small dependency-free
-extractor, and hands off to `pdf-summarizer` via `call_next`; `pdf-summarizer`
-calls Gemini through OpenRouter using an `env:`-granted API key and returns
-the summary as the final result. The orchestrator follows the hand-off
-between them itself — no glue code runs in between.
+summarize" pipeline as chained skills instead — `pdf-fetcher` downloads a PDF
+(using `body_base64` for byte-exact binary fidelity — `body` alone would
+corrupt it), extracts its text with a small dependency-free extractor, and
+hands off to `pdf-summarizer` via `call_next`; `pdf-summarizer` calls Gemini
+through OpenRouter using an `env:`-granted API key and returns the summary as
+the final result. The orchestrator follows the hand-off between them itself
+— no glue code runs in between.
+
+It also publishes a **`text` runtime** skill, `financial-summary-prompt` —
+not code, just instructions steering the summary toward Revenue, EBITDA,
+Profit, and other explicitly-stated figures rather than a generic "summarize
+this." A text skill can't `call_next` (returning its own content *is* what
+it does), so it's fetched once, up front, and its text is threaded through
+`pdf-fetcher`'s input into `pdf-summarizer`, which uses it as the LLM's
+system prompt. The prompt lives in the catalog as its own versioned,
+access-controlled skill, instead of a string hardcoded into whichever script
+happens to call the LLM.
 
 ```bash
 export OPENROUTER_API_KEY=sk-or-...   # https://openrouter.ai/keys — required this time
@@ -350,8 +360,8 @@ Worth being explicit about the trade-off this makes versus the single-skill
 version above: putting the whole pipeline inside skills means the OpenRouter
 API key and the PDF's raw bytes both have to enter sandboxed skill code,
 which the single-skill version deliberately avoids. Reach for that one by
-default; this one exists to show a real two-hop `call_next` chain doing
-substantive work at each step, not just passing a value through.
+default; this one exists to show a real chain doing substantive work at each
+step, not just passing a value through.
 
 ## Choosing a skill version
 

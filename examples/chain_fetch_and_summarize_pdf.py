@@ -1,18 +1,26 @@
-"""Two skills, chained via call_next, entirely inside the protocol.
+"""Two skills, chained via call_next, entirely inside the protocol — plus a
+third, `text` runtime skill supplying the instructions for the LLM step.
 
 Unlike examples/find_and_summarize_pdfs.py (where the orchestrator's own
 trusted code does the downloading/extracting/summarizing after a single
-fetch skill runs), this example expresses the *whole* pipeline as two
+fetch skill runs), this example expresses the *whole* pipeline as chained
 skills, with the orchestrator following the hand-off between them itself:
 
-  1. pdf-fetcher: fetches a PDF via __net_fetch__ (using body_base64 for
+  1. financial-summary-prompt: a `text` skill (not code — see
+     examples/skills/financial-summary-prompt/README.md). Fetched once,
+     up front, not as part of the chain (a text skill can't call_next; it
+     only ever returns its own content). Its text becomes the system
+     prompt for step 3, steering the summary toward Revenue/EBITDA/Profit
+     instead of a generic instruction.
+  2. pdf-fetcher: fetches a PDF via __net_fetch__ (using body_base64 for
      byte-exact binary fidelity — body alone would corrupt it), extracts
      its text with a small dependency-free PDF text extractor (stdlib
      zlib + regex over content streams — no pypdf/pdfplumber available
-     inside the sandbox), and hands off to pdf-summarizer via call_next.
-  2. pdf-summarizer: takes the extracted text, calls Gemini via OpenRouter
-     using an env:-granted API key, and returns the summary as the final
-     result.
+     inside the sandbox), and hands off to pdf-summarizer via call_next,
+     threading the prompt from step 1 straight through.
+  3. pdf-summarizer: takes the extracted text and the prompt, calls Gemini
+     via OpenRouter using an env:-granted API key, and returns the summary
+     as the final result.
 
 Trade-off worth being explicit about: this puts the OpenRouter API key and
 the PDF's raw bytes inside sandboxed skill code, which examples/
@@ -45,10 +53,12 @@ OPENROUTER_PATTERN = "https://openrouter.ai/*"
 SUMMARY_MODEL = "google/gemini-2.5-flash"
 
 _SKILLS_DIR = Path(__file__).parent / "skills"
-# The actual skill sources, as real files: see examples/skills/pdf-fetcher/
-# and examples/skills/pdf-summarizer/ for what each one does and why.
+# The actual skill sources, as real files: see examples/skills/pdf-fetcher/,
+# examples/skills/pdf-summarizer/, and examples/skills/financial-summary-prompt/
+# for what each one does and why.
 FETCHER_CODE = (_SKILLS_DIR / "pdf-fetcher" / "run.py").read_text()
 SUMMARIZER_CODE = (_SKILLS_DIR / "pdf-summarizer" / "run.py").read_text()
+PROMPT_CODE = (_SKILLS_DIR / "financial-summary-prompt" / "skill.md").read_text()
 
 
 def publish_if_missing(gateway_url: str, api_key: str, skill_id: str, body: dict) -> None:
@@ -83,6 +93,23 @@ def main():
     resp.raise_for_status()
     account = resp.json()
 
+    print("== publish financial-summary-prompt@1.0.0 (a text skill — not code) ==")
+    publish_if_missing(
+        GATEWAY_URL,
+        account["api_key"],
+        "financial-summary-prompt",
+        {
+            "name": "Financial Summary Prompt",
+            "description": "Instructions steering a summary toward Revenue/EBITDA/Profit",
+            "runtime": "text",
+            "entrypoint": "skill.md",
+            "input_schema": {"type": "object"},
+            "output_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+            "visibility": "public",
+            "code": PROMPT_CODE,
+        },
+    )
+
     print("== publish pdf-fetcher@1.0.0 (hop 1: fetch + extract, hands off) ==")
     publish_if_missing(
         GATEWAY_URL,
@@ -93,7 +120,11 @@ def main():
             "description": "Fetches a PDF and hands its extracted text off to pdf-summarizer",
             "runtime": "python3.13",
             "entrypoint": "run.py:run",
-            "input_schema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
+            "input_schema": {
+                "type": "object",
+                "properties": {"url": {"type": "string"}, "system_prompt": {"type": "string"}},
+                "required": ["url"],
+            },
             "output_schema": {"type": "object"},
             "capabilities": [f"net:{pdf_host_pattern}", "skill:pdf-summarizer"],
             "resource_limits": {"timeout_seconds": 45, "max_memory_mb": 256},
@@ -114,7 +145,11 @@ def main():
             "entrypoint": "run.py:run",
             "input_schema": {
                 "type": "object",
-                "properties": {"text": {"type": "string"}, "source_url": {"type": "string"}},
+                "properties": {
+                    "text": {"type": "string"},
+                    "source_url": {"type": "string"},
+                    "system_prompt": {"type": "string"},
+                },
                 "required": ["text"],
             },
             "output_schema": {
@@ -136,12 +171,16 @@ def main():
         "env:OPENROUTER_API_KEY",
     }
 
-    print(f"\n== invoking pdf-fetcher against {pdf_url} ==")
-    print("   (the orchestrator follows the call_next hand-off to pdf-summarizer itself)")
     with SkillwardOrchestrator(
         GATEWAY_URL, api_key=account["api_key"], allowed_capabilities=allowed_capabilities
     ) as orch:
-        result = orch.invoke("pdf-fetcher", "1.0.0", {"url": pdf_url})
+        print("\n== fetching financial-summary-prompt (not chained — a text skill can't call_next) ==")
+        system_prompt = orch.invoke("financial-summary-prompt", "1.0.0", {})["text"]
+        print(f"  got {len(system_prompt)} chars of instructions")
+
+        print(f"\n== invoking pdf-fetcher against {pdf_url} ==")
+        print("   (the orchestrator follows the call_next hand-off to pdf-summarizer itself)")
+        result = orch.invoke("pdf-fetcher", "1.0.0", {"url": pdf_url, "system_prompt": system_prompt})
 
     print("\n== final result (returned by hop 2, pdf-summarizer) ==")
     print(f"  source_url: {result['source_url']}")

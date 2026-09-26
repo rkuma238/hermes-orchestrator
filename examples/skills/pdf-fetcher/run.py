@@ -29,10 +29,12 @@ def run(input_data):
     if not text:
         raise ValueError("no extractable text found in PDF")
 
-    return {
-        "call_next": {
-            "id": "pdf-summarizer",
-            "version": "1.0.0",
-            "input": {"text": text[:20000], "source_url": url},
-        }
-    }
+    next_input = {"text": text[:20000], "source_url": url}
+    # Threaded straight through, unchanged: this skill has no opinion on how
+    # the summary should be written, it just carries the instruction along
+    # to whichever skill actually calls the LLM. See
+    # examples/skills/financial-summary-prompt/README.md.
+    if "system_prompt" in input_data:
+        next_input["system_prompt"] = input_data["system_prompt"]
+
+    return {"call_next": {"id": "pdf-summarizer", "version": "1.0.0", "input": next_input}}
