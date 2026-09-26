@@ -47,23 +47,8 @@ GATEWAY_URL = "http://127.0.0.1:10000"
 TOP_N = 2
 SUMMARY_MODEL = "google/gemini-2.5-flash"
 FETCH_SKILL_ID = "webpage-pdf-finder"
-
-FETCH_SKILL_CODE = (
-    "def run(input_data):\n"
-    "    import re\n"
-    "    from urllib.parse import urljoin\n"
-    "\n"
-    "    url = input_data['url']\n"
-    "    resp = __net_fetch__(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; SkillwardBot/1.0)'})\n"
-    "    html = resp['body']\n"
-    "    matches = re.findall(r'href=[\"\\']([^\"\\'>]+?\\.pdf[^\"\\'>]*)[\"\\']', html, re.IGNORECASE)\n"
-    "    seen = []\n"
-    "    for m in matches:\n"
-    "        full = urljoin(url, m)\n"
-    "        if full not in seen:\n"
-    "            seen.append(full)\n"
-    "    return {'pdf_links': seen, 'count': len(seen)}\n"
-)
+# The actual skill source, as a real file: see examples/skills/webpage-pdf-finder/README.md
+FETCH_SKILL_CODE = (Path(__file__).parent / "skills" / FETCH_SKILL_ID / "run.py").read_text()
 
 
 def publish_fetch_skill(gateway_url: str, api_key: str, net_pattern: str) -> None:

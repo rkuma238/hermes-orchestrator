@@ -59,6 +59,10 @@ pythonpath = ["."]
 [tool.ruff]
 line-length = 115
 target-version = "py311"
+# Skill payload files reference __net_fetch__/__bundle__, globals the sandbox
+# injects at execution time (see skillward/sandbox.py) — not real importable
+# names, so linting these as ordinary project code just produces noise.
+extend-exclude = ["examples/skills"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

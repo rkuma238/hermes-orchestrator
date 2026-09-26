@@ -110,26 +110,6 @@ invented, or that it plugs into either of the others automatically.
 | Integrity check on what's discovered | None — the spec says to trust the server | N/A — files are already on your disk | sha256 verified by the orchestrator, before it ever executes anything |
 | Cross-server catalog | Official MCP Registry (`registry.modelcontextprotocol.io`) | N/A | This repo's own registry — **not** federated with the official one |
 
-**Concretely, this means:**
-
-- Calling an MCP server's `tools/list` will **never** surface a Skillward
-  skill. Skillward's `/discover` will **never** surface an MCP tool or a
-  `SKILL.md` skill. Discovering one does not discover the others — an agent
-  that needs all three kinds of capability needs all three discovery
-  mechanisms wired in side by side, not one instead of the others.
-- Skillward does not publish to, sync with, or read from the official MCP
-  Registry. It is a self-contained catalog, deliberately not a federated one.
-- Plain "skill discovery" — the idea of listing what's available — is **not**
-  the gap this project fills. That's already solved twice over: `tools/list`
-  within a server, and the official MCP Registry across servers. Building a
-  third generic "what exists" mechanism from scratch would just be
-  duplicating both. The part that genuinely isn't solved elsewhere yet is the
-  combination Skillward focuses on: **authenticated, per-caller-filtered
-  discovery** (a private catalog with real visibility control, not a public
-  app-store model) **plus client-verified integrity** (a cryptographic
-  checksum checked by the orchestrator itself, instead of MCP's current
-  "trust the server" guidance).
-
 ## Architecture
 
 ```

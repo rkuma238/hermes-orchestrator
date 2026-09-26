@@ -34,6 +34,7 @@ Run:
 import os
 import sys
 import urllib.parse
+from pathlib import Path
 
 import httpx
 
@@ -43,76 +44,11 @@ GATEWAY_URL = "http://127.0.0.1:10000"
 OPENROUTER_PATTERN = "https://openrouter.ai/*"
 SUMMARY_MODEL = "google/gemini-2.5-flash"
 
-FETCHER_CODE = r"""
-def run(input_data):
-    import base64, re, zlib
-
-    url = input_data["url"]
-    resp = __net_fetch__(url, headers={"User-Agent": "Mozilla/5.0 (compatible; SkillwardBot/1.0)"})
-    pdf_bytes = base64.b64decode(resp["body_base64"])
-
-    # Minimal, dependency-free PDF text extraction: most PDF content streams
-    # are zlib-compressed; once decompressed, visible text mostly shows up
-    # as parenthesized string literals passed to the Tj/TJ show-text
-    # operators. This is a naive extractor (no font/encoding awareness) but
-    # works reasonably on ordinary text-heavy PDFs.
-    text_parts = []
-    for stream in re.findall(rb"stream\r?\n(.*?)endstream", pdf_bytes, re.DOTALL):
-        try:
-            decompressed = zlib.decompress(stream)
-        except Exception:
-            continue
-        for literal in re.findall(rb"\((?:[^()\\]|\\.)*\)", decompressed):
-            inner = literal[1:-1].replace(rb"\(", b"(").replace(rb"\)", b")").replace(rb"\\", b"\\")
-            try:
-                text_parts.append(inner.decode("latin-1"))
-            except Exception:
-                pass
-
-    text = re.sub(r"\s+", " ", " ".join(text_parts)).strip()
-    if not text:
-        raise ValueError("no extractable text found in PDF")
-
-    return {
-        "call_next": {
-            "id": "pdf-summarizer",
-            "version": "1.0.0",
-            "input": {"text": text[:20000], "source_url": url},
-        }
-    }
-"""
-
-SUMMARIZER_CODE = r"""
-def run(input_data):
-    import json, os
-
-    text = input_data["text"]
-    source_url = input_data.get("source_url", "")
-    api_key = os.environ["OPENROUTER_API_KEY"]
-
-    payload = json.dumps({
-        "model": "google/gemini-2.5-flash",
-        "max_tokens": 400,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are a concise analyst. Summarize the given document in 5-6 crisp bullet "
-                           "points, suitable for a busy reader. Only use facts present in the text.",
-            },
-            {"role": "user", "content": "Summarize this document (" + source_url + "):\n\n" + text},
-        ],
-    })
-    resp = __net_fetch__(
-        "https://openrouter.ai/api/v1/chat/completions",
-        method="POST",
-        headers={"Content-Type": "application/json", "Authorization": "Bearer " + api_key},
-        body=payload,
-    )
-    body = json.loads(resp["body"])
-    if "choices" not in body:
-        raise RuntimeError("openrouter error: " + json.dumps(body)[:500])
-    return {"summary": body["choices"][0]["message"]["content"], "source_url": source_url}
-"""
+_SKILLS_DIR = Path(__file__).parent / "skills"
+# The actual skill sources, as real files: see examples/skills/pdf-fetcher/
+# and examples/skills/pdf-summarizer/ for what each one does and why.
+FETCHER_CODE = (_SKILLS_DIR / "pdf-fetcher" / "run.py").read_text()
+SUMMARIZER_CODE = (_SKILLS_DIR / "pdf-summarizer" / "run.py").read_text()
 
 
 def publish_if_missing(gateway_url: str, api_key: str, skill_id: str, body: dict) -> None:
