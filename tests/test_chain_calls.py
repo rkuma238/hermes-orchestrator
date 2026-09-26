@@ -367,3 +367,59 @@ def test_text_skill_hand_off_still_enforces_capability_check(chain_account):
     with SkillwardOrchestrator(GATEWAY_URL, api_key=api_key, allowed_capabilities=set()) as orch:
         with pytest.raises(CapabilityDeniedError, match="not permitted to hand off"):
             orch.invoke("text-chain-router-undeclared", "1.0.0", {})
+
+
+def test_text_skill_can_hand_off_to_another_text_skill(chain_account):
+    # A -> B -> C, all three `text` runtime: A and B's content is the
+    # call_next JSON shape (a declarative hand-off), C's content is plain
+    # prose (the final result). Proves a text-to-text hop chains just like
+    # any other pair, and that a chain can pass through more than one text
+    # hop before terminating.
+    api_key = chain_account["api_key"]
+
+    _publish(
+        api_key,
+        "text-chain-final",
+        "1.0.0",
+        code="You are a friendly assistant. Always greet the user warmly.",
+        description="the final, plain-prose text skill the chain terminates on",
+        runtime="text",
+        entrypoint="skill.md",
+        input_schema={"type": "object"},
+        output_schema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+    )
+
+    b_content = json.dumps({"call_next": {"id": "text-chain-final", "version": "1.0.0", "input": {}}})
+    _publish(
+        api_key,
+        "text-chain-router-b",
+        "1.0.0",
+        capabilities=["skill:text-chain-final"],
+        code=b_content,
+        description="a text skill that hands off to another text skill",
+        runtime="text",
+        entrypoint="router.json",
+        input_schema={"type": "object"},
+    )
+
+    a_content = json.dumps({"call_next": {"id": "text-chain-router-b", "version": "1.0.0", "input": {}}})
+    _publish(
+        api_key,
+        "text-chain-router-a",
+        "1.0.0",
+        capabilities=["skill:text-chain-router-b"],
+        code=a_content,
+        description="a text skill that hands off to another text skill that itself hands off",
+        runtime="text",
+        entrypoint="router.json",
+        input_schema={"type": "object"},
+    )
+
+    with SkillwardOrchestrator(
+        GATEWAY_URL,
+        api_key=api_key,
+        allowed_capabilities={"skill:text-chain-router-b", "skill:text-chain-final"},
+    ) as orch:
+        result = orch.invoke("text-chain-router-a", "1.0.0", {})
+
+    assert result == {"text": "You are a friendly assistant. Always greet the user warmly."}
