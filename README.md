@@ -296,6 +296,32 @@ network access to reach the registry itself — a skill can only ask for a
 hand-off, never perform one. See spec/SPEC.md's "Chain calls" section for the
 full design.
 
+## Network access
+
+A skill granted `net:<url-glob>` capabilities gets `__net_fetch__` in its
+execution namespace — a real HTTP client, checked against exactly the
+patterns it was granted before any request goes out:
+
+```python
+def run(input_data):
+    resp = __net_fetch__("https://api.example.com/rates", method="GET")
+    return {"status": resp["status"], "body": resp["body"]}
+```
+
+```js
+async function run(input) {
+  const resp = await __net_fetch__("https://api.example.com/rates");
+  return { status: resp.status, body: resp.body };
+}
+```
+
+Declare it like any other capability — `"capabilities": ["net:https://api.example.com/*"]`
+on the manifest, granted by the deployment's `allowed_capabilities` — and a
+request to a URL that doesn't match is rejected by `__net_fetch__` itself,
+inside the sandbox, before anything goes out. A skill granted no `net:`
+capability at all has no such function available to call. See the security
+model below for what this boundary actually guarantees per runtime.
+
 ## Choosing a skill version
 
 Every call names a version explicitly — but that version doesn't have to be
@@ -417,6 +443,14 @@ worth knowing the schema isn't hand-written per skill.
   for skills you trust during development, **not** a substitute for
   container/gVisor/Firecracker or a Wasm sandbox against arbitrary
   third-party code.
+- **`net:` capabilities are pattern-checked, not ambient.** A skill granted
+  `net:<url-glob>` gets `__net_fetch__(url, ...)`, which checks `url` against
+  exactly the granted patterns before making a real request — a skill
+  granted nothing gets no such function. For Node this is a hard boundary
+  (the vm context it runs in starts with nothing else in it — no `require`,
+  no global `fetch`); for Python it's best-effort, since stdlib access isn't
+  removed and code that imports `urllib` directly bypasses the check. See
+  spec/SPEC.md's "5b. Network access."
 
 ## Tests
 

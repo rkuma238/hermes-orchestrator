@@ -5,6 +5,9 @@ Run with: pytest tests/ -v (from the project root, inside .venv)
 """
 
 import copy
+import http.server
+import json
+import threading
 
 import httpx
 import jsonschema
@@ -15,6 +18,30 @@ from skillward import SkillwardOrchestrator
 from skillward.orchestrator import CapabilityDeniedError
 from skillward.registry_client import ChecksumMismatchError
 from skillward.sandbox import SkillExecutionError
+
+
+@pytest.fixture()
+def local_http_server():
+    # A real, local-only HTTP server so __net_fetch__ tests prove actual
+    # network I/O happens, without depending on any external connectivity.
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"hello": "world"}).encode())
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
 
 
 def test_unauthenticated_requests_are_rejected():
@@ -308,6 +335,73 @@ def test_combo_skill_rejects_unsafe_bundle_paths(account):
         },
     )
     assert resp.status_code == 400
+
+
+_NET_FETCH_CODE = (
+    "def run(input_data):\n"
+    "    resp = __net_fetch__(input_data['url'])\n"
+    "    return {'status': resp['status'], 'body': resp['body']}\n"
+)
+
+
+def _publish_net_fetch_skill(api_key: str, skill_id: str, net_pattern: str):
+    resp = httpx.post(
+        f"{GATEWAY_URL}/skills/{skill_id}/1.0.0",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={
+            "name": "Net Fetch Skill",
+            "description": "makes a real outbound HTTP call via __net_fetch__",
+            "runtime": "python3.13",
+            "entrypoint": "run.py:run",
+            "input_schema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
+            "output_schema": {
+                "type": "object",
+                "properties": {"status": {"type": "integer"}, "body": {"type": "string"}},
+                "required": ["status", "body"],
+            },
+            "capabilities": [f"net:{net_pattern}"],
+            "visibility": "public",
+            "code": _NET_FETCH_CODE,
+        },
+    )
+    assert resp.status_code == 200
+    return resp.json()
+
+
+def test_net_fetch_succeeds_when_pattern_and_policy_both_grant_it(account, local_http_server):
+    api_key = account["api_key"]
+    pattern = f"{local_http_server}/*"
+    _publish_net_fetch_skill(api_key, "pytest-net-fetch-ok", pattern)
+
+    with SkillwardOrchestrator(GATEWAY_URL, api_key=api_key, allowed_capabilities={f"net:{pattern}"}) as orch:
+        result = orch.invoke("pytest-net-fetch-ok", "1.0.0", {"url": f"{local_http_server}/data"})
+    assert result["status"] == 200
+    assert json.loads(result["body"]) == {"hello": "world"}
+
+
+def test_net_fetch_denied_when_deployment_policy_refuses_it(account, local_http_server):
+    api_key = account["api_key"]
+    pattern = f"{local_http_server}/*"
+    _publish_net_fetch_skill(api_key, "pytest-net-fetch-policy-denied", pattern)
+
+    # The skill declares the capability, but this deployment doesn't grant
+    # it — refused before the skill ever runs, same as any other capability.
+    with SkillwardOrchestrator(GATEWAY_URL, api_key=api_key, allowed_capabilities=set()) as orch:
+        with pytest.raises(CapabilityDeniedError):
+            orch.invoke("pytest-net-fetch-policy-denied", "1.0.0", {"url": f"{local_http_server}/data"})
+
+
+def test_net_fetch_denied_when_url_does_not_match_granted_pattern(account, local_http_server):
+    api_key = account["api_key"]
+    # Granted a *different* host than the one it actually tries to reach —
+    # the mismatch is caught by __net_fetch__ itself, inside the sandbox.
+    _publish_net_fetch_skill(api_key, "pytest-net-fetch-pattern-mismatch", "https://totally-different.example/*")
+
+    with SkillwardOrchestrator(
+        GATEWAY_URL, api_key=api_key, allowed_capabilities={"net:https://totally-different.example/*"}
+    ) as orch:
+        with pytest.raises(SkillExecutionError, match="not granted net"):
+            orch.invoke("pytest-net-fetch-pattern-mismatch", "1.0.0", {"url": f"{local_http_server}/data"})
 
 
 def test_invoke_with_latest_resolves_to_newest_version(orchestrator, account):

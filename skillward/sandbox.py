@@ -34,6 +34,18 @@ orchestrator inspecting a skill's *output* for a reserved `call_next` shape
 between hops — nothing in this module needs to know chaining exists at all,
 which is why it works identically for every runtime with no runtime-specific
 protocol.
+
+A skill granted `net:<url-pattern>` capabilities (see orchestrator.py) gets a
+real, working `__net_fetch__(url, ...)` in its execution namespace, checked
+against exactly the patterns it was granted before any request goes out —
+today this is the *only* thing "net:" actually does; declaring it used to be
+checked at invocation time but had no effect once the skill was running. For
+Node, this is a hard boundary: the vm context a skill runs in starts with
+nothing else in it, so `__net_fetch__` is the *only* way out at all. For
+Python, it isn't — `-I -S` scrubs the environment but doesn't remove stdlib
+access, so code that imports `urllib` directly bypasses the pattern check
+entirely. That's the same "not a kernel-enforced boundary" caveat as the rest
+of this module, not a new hole: see the module-level warning above.
 """
 
 from __future__ import annotations
@@ -44,12 +56,12 @@ import subprocess
 import sys
 import tempfile
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .manifest import ResourceLimits
 
 _PYTHON_BOOTSTRAP = r"""
-import sys, json, types
+import sys, json, types, fnmatch
 
 def main():
     envelope = json.loads(sys.stdin.read())
@@ -57,6 +69,7 @@ def main():
     code = files[envelope["entrypoint_file"]]
     func_name = envelope["function"]
     input_data = envelope["input"]
+    net_patterns = envelope.get("granted_net_patterns") or []
 
     max_mb = envelope.get("max_memory_mb")
     if max_mb:
@@ -67,11 +80,24 @@ def main():
         except Exception:
             pass  # best-effort; not supported on every platform
 
+    def __net_fetch__(url, method="GET", headers=None, body=None, timeout=10):
+        if not any(fnmatch.fnmatch(url, pattern) for pattern in net_patterns):
+            raise PermissionError(f"not granted net: access to {url!r}")
+        import urllib.error, urllib.request
+        data = body.encode("utf-8") if isinstance(body, str) else body
+        req = urllib.request.Request(url, method=method, headers=headers or {}, data=data)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return {"status": resp.status, "headers": dict(resp.headers), "body": resp.read().decode("utf-8", "replace")}
+        except urllib.error.HTTPError as e:
+            return {"status": e.code, "headers": dict(e.headers or {}), "body": e.read().decode("utf-8", "replace")}
+
     module = types.ModuleType("skill_payload")
     # In-memory only, never written to disk: lets the entrypoint read a
     # companion file (module.__bundle__["SKILL.md"], say) without this
     # module needing any real filesystem access to provide it.
     module.__dict__["__bundle__"] = files
+    module.__dict__["__net_fetch__"] = __net_fetch__
     exec(compile(code, "<skill>", "exec"), module.__dict__)
     func = getattr(module, func_name)
     result = func(input_data)
@@ -87,23 +113,67 @@ if __name__ == "__main__":
 
 _NODE_BOOTSTRAP = r"""
 const vm = require('vm');
+const http = require('http');
+const https = require('https');
+
+function globToRegExp(pattern) {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+  return new RegExp('^' + escaped + '$');
+}
+
+function netFetch(netPatterns, url, options) {
+  options = options || {};
+  return new Promise((resolve, reject) => {
+    if (!netPatterns.some(p => globToRegExp(p).test(url))) {
+      reject(new Error("not granted net: access to " + url));
+      return;
+    }
+    const client = url.startsWith('https:') ? https : http;
+    const req = client.request(url, {
+      method: options.method || 'GET',
+      headers: options.headers || {},
+      timeout: (options.timeout || 10) * 1000,
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('net_fetch timed out')));
+    if (options.body) req.write(options.body);
+    req.end();
+  });
+}
+
 let inputData = '';
 process.stdin.on('data', d => inputData += d);
 process.stdin.on('end', () => {
   try {
     const envelope = JSON.parse(inputData);
     const code = envelope.files[envelope.entrypoint_file];
+    const netPatterns = envelope.granted_net_patterns || [];
     // Same in-memory-only bundle as the Python bootstrap: __bundle__ is a
     // plain object, not a real file the running code could open by path.
-    const sandbox = { __bundle__: envelope.files };
+    // __net_fetch__ is the *only* way this context can reach a network at
+    // all — the vm context otherwise starts with nothing else in it.
+    const sandbox = {
+      __bundle__: envelope.files,
+      __net_fetch__: (url, options) => netFetch(netPatterns, url, options),
+    };
     vm.createContext(sandbox);
     new vm.Script(code, { filename: 'skill.js' }).runInContext(sandbox, { timeout: 30000 });
     const fn = sandbox[envelope.function];
     if (typeof fn !== 'function') {
       throw new Error("function '" + envelope.function + "' not found in skill code");
     }
-    const result = fn(envelope.input);
-    process.stdout.write(JSON.stringify({ ok: true, result: result }));
+    // Supports an entrypoint returning a plain value or a Promise (e.g. one
+    // that awaits __net_fetch__), transparently either way.
+    Promise.resolve(fn(envelope.input)).then((result) => {
+      process.stdout.write(JSON.stringify({ ok: true, result: result }));
+    }).catch((e) => {
+      process.stdout.write(JSON.stringify({ ok: false, error: String((e && e.message) || e) }));
+      process.exitCode = 1;
+    });
   } catch (e) {
     process.stdout.write(JSON.stringify({ ok: false, error: String((e && e.message) || e) }));
     process.exitCode = 1;
@@ -125,6 +195,10 @@ class SandboxRequest:
     granted_env: dict[str, str]
     limits: ResourceLimits
     runtime: str = "python3.13"
+    # URL-glob patterns (the part after "net:" in the manifest's own
+    # capability strings) this invocation is allowed to reach via
+    # __net_fetch__ — see the module docstring above.
+    granted_net_patterns: list[str] = field(default_factory=list)
 
 
 class SandboxRunner(ABC):
@@ -163,6 +237,7 @@ class SubprocessSandboxRunner(SandboxRunner):
                 "function": request.function,
                 "input": request.input_data,
                 "max_memory_mb": request.limits.max_memory_mb,
+                "granted_net_patterns": request.granted_net_patterns,
             }
         )
         env = {"PATH": "/usr/bin:/bin", **request.granted_env}
@@ -194,6 +269,7 @@ class SubprocessSandboxRunner(SandboxRunner):
                 "entrypoint_file": request.entrypoint_file,
                 "function": request.function,
                 "input": request.input_data,
+                "granted_net_patterns": request.granted_net_patterns,
             }
         )
         env = {"PATH": "/usr/bin:/bin", **request.granted_env}

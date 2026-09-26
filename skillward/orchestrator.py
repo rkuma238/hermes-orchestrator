@@ -203,6 +203,7 @@ class SkillwardOrchestrator:
                     granted_env=granted_env,
                     limits=effective_limits,
                     runtime=manifest.runtime,
+                    granted_net_patterns=self._granted_net_patterns(manifest),
                 )
             )
         except Exception as e:
@@ -236,11 +237,18 @@ class SkillwardOrchestrator:
                     f"which this orchestrator is not configured to grant"
                 )
         net_caps = [c for c in manifest.capabilities if c.startswith("net:")]
-        if net_caps:
+        if net_caps and manifest.runtime.startswith("python"):
+            # __net_fetch__ enforces the granted patterns, but python's
+            # sandbox doesn't remove stdlib access — code that imports
+            # urllib directly bypasses the check entirely. Node has no such
+            # gap: its vm context starts with nothing else in it, so
+            # __net_fetch__ is the only way out at all. See spec/SPEC.md's
+            # Sandboxing section before trusting this against untrusted
+            # python skills.
             log.warning(
-                "%s@%s was granted network capabilities %s, but the subprocess sandbox "
-                "does not enforce network isolation at the OS level in v0.1 — see "
-                "spec/SPEC.md's Sandboxing section before trusting this in production",
+                "%s@%s was granted network capabilities %s via __net_fetch__, but its "
+                "python sandbox doesn't remove stdlib access — code that imports urllib "
+                "directly bypasses the pattern check entirely",
                 manifest.id,
                 manifest.version,
                 net_caps,
@@ -254,6 +262,12 @@ class SkillwardOrchestrator:
                 if var_name in os.environ:
                     granted[var_name] = os.environ[var_name]
         return granted
+
+    def _granted_net_patterns(self, manifest: SkillManifest) -> list[str]:
+        # Every entry here already passed _check_capabilities (declared by
+        # the manifest *and* allowed by this deployment's policy) before we
+        # get here — this just extracts the url-glob part for __net_fetch__.
+        return [cap.split(":", 1)[1] for cap in manifest.capabilities if cap.startswith("net:")]
 
     def close(self) -> None:
         self.registry.close()

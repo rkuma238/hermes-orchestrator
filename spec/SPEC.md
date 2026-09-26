@@ -278,6 +278,36 @@ all — it just returns whatever the skill returned, and the orchestrator
 decides what it means. A hand-off from a Python skill to a Node skill (or
 vice versa) needs no special handling anywhere.
 
+### 5b. Network access
+
+`net:<url-glob>` is checked the same way as every other capability
+(declared by the manifest, separately granted by the deployment), but unlike
+in earlier versions of this protocol, granting it now does something
+concrete at execution time: the running entrypoint gets `__net_fetch__(url,
+{method, headers, body, timeout})`, which pattern-matches `url` against
+exactly the patterns this invocation was granted before making any request,
+and performs a real HTTP call if it matches. A skill that was never granted
+any `net:` capability at all gets no such function — there's nothing to
+call.
+
+`__net_fetch__` is the *only* thing "net:" grants; there is no ambient,
+unscoped internet access handed to a skill just because it declared
+something under `net:`. What that pattern-matched boundary is actually worth
+differs by runtime:
+
+- **Node**: a hard boundary. The vm context a skill executes in starts with
+  nothing else in it at all — no `require`, no global `fetch`, no `process`
+  — so `__net_fetch__` is the *only* path to a network a Node skill has,
+  period. A skill without a matching `net:` grant cannot reach a network by
+  any means available to it.
+- **Python**: best-effort, not enforced. `-I -S` scrubs the environment but
+  doesn't remove stdlib access — code that `import urllib.request` directly
+  bypasses the pattern check entirely, since nothing stops a plain CPython
+  subprocess from opening a socket. `__net_fetch__` is the *intended*,
+  capability-checked path for a well-behaved skill, not a guarantee against
+  a skill that goes around it. See "Sandboxing" below before granting `net:`
+  to a Python skill you don't fully trust.
+
 ### 6. Execution
 
 For code runtimes (`python3.1x`, `node20`), the orchestrator loads
@@ -352,6 +382,12 @@ crash isolation, but **CPython subprocess isolation is not a hard security
 boundary against a deliberately malicious skill** — there's no seccomp/network
 namespace here, and a determined payload can still make network calls in the
 absence of OS-level enforcement.
+
+This applies specifically to the Python runtime — Node's isolation is
+stronger by construction, since a skill runs inside a `vm` context that
+starts with nothing in it (no `require`, no global `fetch`) rather than a
+full interpreter with stdlib access; see "5b. Network access" above. Neither
+runtime's isolation should be treated as equivalent to a real sandbox.
 
 Treat v0.1 as suitable for skills you trust (your own team, vetted publishers)
 during development. Before running arbitrary third-party skills in production,
