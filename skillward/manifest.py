@@ -9,13 +9,19 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 PROTOCOL_VERSION = "0.1"
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
-_ENTRYPOINT_RE = re.compile(r"^[A-Za-z0-9_./]+\.(py|js):[A-Za-z_$][A-Za-z0-9_$]*$")
+# Code skills: "file.py:function" / "file.js:function" — something the
+# sandbox executes. Text skills have no function to call at all: the
+# payload file *is* the skill (a prompt/instructions/static content, in the
+# spirit of a SKILL.md), returned verbatim rather than run — see
+# sandbox.py's _run_text and SkillManifest.is_text below.
+_CODE_ENTRYPOINT_RE = re.compile(r"^[A-Za-z0-9_./]+\.(py|js):[A-Za-z_$][A-Za-z0-9_$]*$")
+_TEXT_ENTRYPOINT_RE = re.compile(r"^[A-Za-z0-9_./]+\.(md|txt)$")
 # skill:<id> / skill:* lets a skill declare it needs to call another skill —
 # gated the same way as net:/env:, both by the calling manifest declaring it
 # and by the orchestrator's own allowed_capabilities policy. See
@@ -53,7 +59,7 @@ class SkillManifest(BaseModel):
     version: str
     name: str
     description: str
-    runtime: Literal["python3.11", "python3.12", "python3.13", "node20"]
+    runtime: Literal["python3.11", "python3.12", "python3.13", "node20", "text"]
     entrypoint: str
     input_schema: dict
     output_schema: dict
@@ -78,12 +84,19 @@ class SkillManifest(BaseModel):
             raise ValueError(f"invalid semver version: {v!r}")
         return v
 
-    @field_validator("entrypoint")
-    @classmethod
-    def _check_entrypoint(cls, v: str) -> str:
-        if not _ENTRYPOINT_RE.fullmatch(v):
-            raise ValueError(f"invalid entrypoint: {v!r}, expected 'file.py:function' or 'file.js:function'")
-        return v
+    @model_validator(mode="after")
+    def _check_entrypoint_matches_runtime(self) -> SkillManifest:
+        if self.runtime == "text":
+            if not _TEXT_ENTRYPOINT_RE.fullmatch(self.entrypoint):
+                raise ValueError(
+                    f"text skills need a bare 'file.md' or 'file.txt' entrypoint (no function), "
+                    f"got {self.entrypoint!r}"
+                )
+        elif not _CODE_ENTRYPOINT_RE.fullmatch(self.entrypoint):
+            raise ValueError(
+                f"invalid entrypoint: {self.entrypoint!r}, expected 'file.py:function' or 'file.js:function'"
+            )
+        return self
 
     @field_validator("capabilities")
     @classmethod
@@ -96,6 +109,10 @@ class SkillManifest(BaseModel):
     def entrypoint_parts(self) -> tuple[str, str]:
         path, _, func = self.entrypoint.partition(":")
         return path, func
+
+    @property
+    def is_text(self) -> bool:
+        return self.runtime == "text"
 
 
 class SkillSummary(BaseModel):

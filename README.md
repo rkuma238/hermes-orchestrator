@@ -72,6 +72,11 @@ Concretely, with skills living as local files:
 6. **Version drift.** Different machines end up running different versions
    of "the same" skill, because there's no single source of truth anyone is
    actually pulling from.
+7. **No skill SDLC.** A file on disk has no lifecycle: no way to publish a
+   new version without touching every machine that has the old one, no way
+   for a caller to deliberately pin an exact version for reproducibility, and
+   no way to say "always run whatever's current" either — there's no live
+   concept of "current" for something that's just sitting in a directory.
 
 Skillward's answer to each of these is mechanical, not aspirational —
 they're direct consequences of a skill never being a local file:
@@ -84,6 +89,7 @@ they're direct consequences of a skill never being a local file:
 | No revocation | Change a skill's visibility or remove it once, centrally — nothing to clean up per machine |
 | No audit trail | Invocation telemetry: who ran what, when, success/failure (`/accounts/{id}/invocations`) |
 | Version drift | One registry, one current version — every fetch gets what's actually published |
+| No skill SDLC | Publish a new version once; callers choose per-invocation to pin an exact version or pass `"latest"` and always get whatever's current — a live, centrally-resolved choice, not a per-machine sync problem |
 
 This isn't a compliance-checkbox pitch — it's the direct, mechanical answer
 to "what's running and who put it there," which local-file skill
@@ -196,13 +202,32 @@ publish a skill, watch its checksum and invocation log.
 No changes to any other backend or to hand-written Envoy routes — that's the
 whole point of the generator (see `scripts/generate_envoy_config.py`).
 
-## Multi-language skills and one skill calling another
+## Multi-language, plain-text, and chained skills
 
-Two runtimes ship today: `python3.1x` and `node20` — a skill's `entrypoint`
-is `payload.py:function` or `payload.js:function`, dispatched by its
-declared `runtime`. Adding a third language means adding a bootstrap script
-and a dispatch branch in `skillward/sandbox.py`; nothing in the orchestrator
-or protocol needs to change.
+Two code runtimes ship today: `python3.1x` and `node20` — a skill's
+`entrypoint` is `payload.py:function` or `payload.js:function`, dispatched
+by its declared `runtime`. Adding a third language means adding a bootstrap
+script and a dispatch branch in `skillward/sandbox.py`; nothing in the
+orchestrator or protocol needs to change.
+
+A skill doesn't have to be executable code at all. The `text` runtime covers
+skills that are just static content — a prompt, a set of instructions,
+reference material, in the spirit of a SKILL.md — where `entrypoint` is a
+bare `skill.md` or `notes.txt` with no function to call, and invoking the
+skill just returns `{"text": "<payload contents>"}`. No subprocess, no
+capability surface, nothing to sandbox — but it still goes through the same
+discover→authenticate→authorize→fetch→verify pipeline, checksummed and
+access-controlled exactly like a code skill:
+
+```python
+result = orchestrator.invoke("greeting-prompt", "1.0.0", {})
+# {"text": "You are a friendly assistant. Always greet the user warmly."}
+```
+
+A catalog of reusable prompts benefits from the same integrity and
+access-control story as a catalog of code — that's not a special case
+Skillward carves out for text, it's the same protocol applied to a different
+kind of payload.
 
 A skill can hand off to another skill by *returning* a reserved shape instead
 of a real result — there's no live callback, no long-running process, and no
@@ -235,6 +260,25 @@ can't recurse or stall forever. The sandboxed subprocess never gets raw
 network access to reach the registry itself — a skill can only ask for a
 hand-off, never perform one. See spec/SPEC.md's "Chain calls" section for the
 full design.
+
+## Choosing a skill version
+
+Every call names a version explicitly — but that version doesn't have to be
+an exact pin. Pass `"latest"` instead of a semver string and the registry
+resolves it, centrally, to whichever version is actually current at call
+time:
+
+```python
+orchestrator.invoke("some-skill", "1.2.0", input_data)  # pinned, reproducible
+orchestrator.invoke("some-skill", "latest", input_data)  # always whatever's current
+orchestrator.list_versions("some-skill")  # ["1.3.0", "1.2.0", "1.0.0"], newest first
+```
+
+This is the piece a local skills directory has no equivalent for: a file on
+disk is just whatever happened to be checked out there, with no live
+"current" to ask for and no way to pin a version except by not updating. A
+registry makes both choices — pin, or always-latest — a per-call decision
+instead of a per-machine maintenance problem.
 
 ## Using discovered skills with your agent framework
 

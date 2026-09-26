@@ -89,7 +89,13 @@ class SkillwardOrchestrator:
     def discover(self, query: str = "", capability: str | None = None) -> list[SkillSummary]:
         return self.registry.discover(query, capability)
 
+    def list_versions(self, skill_id: str) -> list[str]:
+        return self.registry.list_versions(skill_id)
+
     def invoke(self, skill_id: str, version: str, input_data: dict) -> dict:
+        """`version` may be an exact semver, or "latest" to always run
+        whatever's currently published — resolved centrally by the registry,
+        not by whatever happens to be sitting in a local skills directory."""
         manifest = self.registry.get_manifest(skill_id, version)
         return self.invoke_manifest(manifest, input_data)
 

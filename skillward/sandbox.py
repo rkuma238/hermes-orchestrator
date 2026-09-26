@@ -14,9 +14,12 @@ namespace, and the subprocess exits when the call returns. This isn't a
 security control — it's just that a per-call subprocess has no reason to
 persist the code as a file.
 
-Two runtimes ship today: Python (`python3.1x`) and Node.js (`node20`). Both
-are single-shot: one envelope in, one JSON result out, process exits. Chain
-calls (see orchestrator.py) are driven entirely by the orchestrator
+Three runtimes ship today: Python (`python3.1x`) and Node.js (`node20`) are
+single-shot code — one envelope in, one JSON result out, process exits. A
+`text` skill isn't code at all: its payload (a prompt, instructions, any
+static content — the spirit of a SKILL.md) is the entire result, returned
+verbatim with no subprocess, no capability surface, nothing to sandbox.
+Chain calls (see orchestrator.py) are driven entirely by the orchestrator
 inspecting a skill's *output* for a reserved `call_next` shape between hops
 — nothing in this module needs to know chaining exists at all, which is why
 it works identically for every runtime with no runtime-specific protocol.
@@ -118,11 +121,18 @@ class SubprocessSandboxRunner(SandboxRunner):
     """Reference v0.1 backend: isolated subprocess per runtime, no persisted files."""
 
     def run(self, request: SandboxRequest) -> dict:
+        if request.runtime == "text":
+            return self._run_text(request)
         if request.runtime.startswith("python"):
             return self._run_python(request)
         if request.runtime.startswith("node"):
             return self._run_node(request)
         raise SkillExecutionError(f"unsupported runtime: {request.runtime!r}")
+
+    def _run_text(self, request: SandboxRequest) -> dict:
+        # No subprocess, no capability surface: there's no code here to run,
+        # so there's nothing to isolate. The payload itself is the answer.
+        return {"text": request.code}
 
     def _run_python(self, request: SandboxRequest) -> dict:
         envelope = json.dumps(

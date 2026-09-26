@@ -113,7 +113,7 @@ def _load_store() -> tuple[dict[tuple[str, str], dict], dict[tuple[str, str], st
         manifest = json.loads(manifest_path.read_text())
         key = (manifest["id"], manifest["version"])
         manifests[key] = manifest
-        entrypoint_file, _ = manifest["entrypoint"].split(":")
+        entrypoint_file = manifest["entrypoint"].split(":")[0]  # text entrypoints have no ":function"
         payload_path = manifest_path.parent / entrypoint_file
         if payload_path.exists():
             payloads[key] = payload_path.read_text()
@@ -148,6 +148,27 @@ def _load_manifest_or_none(skill_id: str, version: str) -> dict | None:
 def _load_payload_or_none(skill_id: str, version: str) -> str | None:
     _, payloads = _get_caches()
     return payloads.get((skill_id, version))
+
+
+def _semver_key(version: str) -> tuple[int, int, int]:
+    major, minor, patch = version.split(".")
+    return (int(major), int(minor), int(patch))
+
+
+def _resolve_version(skill_id: str, version: str) -> str:
+    """Lets a caller pin an exact version, or ask for "latest" and have the
+    registry resolve it — a live, centrally-decided choice a local
+    filesystem skill has no equivalent for, since a file on disk is just
+    whatever happened to be checked out there, with no notion of "current".
+    Returns `version` unchanged if it isn't "latest" (including if it
+    doesn't exist — the normal 404 path handles that)."""
+    if version != "latest":
+        return version
+    manifests, _ = _get_caches()
+    published_versions = [v for (sid, v) in manifests if sid == skill_id]
+    if not published_versions:
+        return version
+    return max(published_versions, key=_semver_key)
 
 
 # ---------------------------------------------------------------------------
@@ -193,9 +214,20 @@ def discover(
     return results
 
 
+@app.get("/skills/{skill_id}/versions")
+def list_skill_versions(skill_id: str, x_account_id: str | None = Header(default=None)) -> list[str]:
+    account_id = require_account(x_account_id)
+    manifests, _ = _get_caches()
+    versions = [v for (sid, v), m in manifests.items() if sid == skill_id and is_authorized(m, account_id)]
+    if not versions:
+        raise HTTPException(status_code=404, detail=f"no such skill {skill_id}")
+    return sorted(versions, key=_semver_key, reverse=True)
+
+
 @app.get("/skills/{skill_id}/{version}/manifest")
 def get_manifest(skill_id: str, version: str, x_account_id: str | None = Header(default=None)) -> dict:
     account_id = require_account(x_account_id)
+    version = _resolve_version(skill_id, version)
     manifest = _load_manifest_or_none(skill_id, version)
     # 404 (not 403) whether the skill is missing or just not authorized for
     # this caller, so discovery can't be used to probe private skill ids.
@@ -207,13 +239,18 @@ def get_manifest(skill_id: str, version: str, x_account_id: str | None = Header(
 @app.get("/skills/{skill_id}/{version}/payload")
 def get_payload(skill_id: str, version: str, x_account_id: str | None = Header(default=None)) -> PlainTextResponse:
     account_id = require_account(x_account_id)
+    version = _resolve_version(skill_id, version)
     manifest = _load_manifest_or_none(skill_id, version)
     if not manifest or not is_authorized(manifest, account_id):
         raise HTTPException(status_code=404, detail=f"no such skill {skill_id}@{version}")
     payload = _load_payload_or_none(skill_id, version)
     if payload is None:
         raise HTTPException(status_code=404, detail="payload file missing")
-    return PlainTextResponse(payload, media_type="text/x-python")
+    media_type = {
+        "node20": "application/javascript",
+        "text": "text/plain",
+    }.get(manifest["runtime"], "text/x-python")
+    return PlainTextResponse(payload, media_type=media_type)
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +273,7 @@ def publish_skill(skill_id: str, version: str, body: dict, x_account_id: str | N
 
     code: str = body["code"]
     digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
-    entrypoint_file, _ = body["entrypoint"].split(":")
+    entrypoint_file = body["entrypoint"].split(":")[0]  # text entrypoints have no ":function"
 
     # A published (id, version)'s code is immutable: once a digest is set for
     # it, republishing different content under the same version is rejected

@@ -138,6 +138,23 @@ otherwise, again to avoid confirming a private skill's existence. The
 manifest is the unit of trust: it carries the payload URL, its checksum,
 declared capabilities, and I/O schema.
 
+`{version}` may be an exact semver, or the literal string `latest` — resolved
+centrally by the registry to the highest published semver for that `id`, at
+call time. The returned manifest's own `version` field is always the
+concrete version that was resolved, never the literal string `latest`.
+`GET /skills/{id}/versions` lists every version of `id` this caller is
+authorized to see, newest first, for a caller that wants to choose a version
+explicitly rather than always taking whatever's current.
+
+This is a version-selection story a local skills directory has no equivalent
+for: a file on disk is just whatever happened to be checked out there, with
+no live relationship to what's actually current, and no way to ask for "the
+newest" without some separate process pulling updates onto that machine.
+Centralizing skills behind a registry turns "which version do I run" into a
+per-call choice — pin an exact version for reproducibility, or take `latest`
+to always get whatever's currently published — resolved the same way for
+every caller, rather than however each machine happens to be maintained.
+
 ### 3. Payload fetch
 
 `GET {manifest.payload.url}` — today, in the reference implementation, a raw
@@ -263,11 +280,26 @@ vice versa) needs no special handling anywhere.
 
 ### 6. Execution
 
-The orchestrator loads `entrypoint` (`file.py:function` or `file.js:function`,
-dispatched by `manifest.runtime`) inside a sandbox (see `skillward/sandbox.py`),
-calls it with a JSON-serializable dict validated against `input_schema`, and
-validates the returned dict against `output_schema`. See "Sandboxing" below
-for what isolation actually means in the reference implementation vs. what a
+For code runtimes (`python3.1x`, `node20`), the orchestrator loads
+`entrypoint` (`file.py:function` or `file.js:function`, dispatched by
+`manifest.runtime`) inside a sandbox (see `skillward/sandbox.py`), calls it
+with a JSON-serializable dict validated against `input_schema`, and validates
+the returned dict against `output_schema`.
+
+The `text` runtime isn't code at all — `entrypoint` is a bare `file.md` or
+`file.txt` with no function to call, and the payload's own bytes *are* the
+result (`{"text": "<payload contents>"}`), still validated against
+`output_schema` like any other result. There's no subprocess, no capability
+surface, nothing to sandbox — a text skill is static content (a prompt,
+instructions, reference material, in the spirit of a SKILL.md) served
+through the same discover→authenticate→authorize→fetch→verify pipeline as
+any code skill, not a special case of it. This is deliberately *not* limited
+to binary/executable skills: a catalog of reusable prompts or instructions
+benefits from the same integrity and access-control story as a catalog of
+code.
+
+See "Sandboxing" below for what isolation actually means for code runtimes in
+the reference implementation vs. what a
 production deployment should use.
 
 ### 7. Teardown

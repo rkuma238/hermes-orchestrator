@@ -4,6 +4,17 @@
   "title": "Skillward Protocol Skill Manifest",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "properties": { "runtime": { "const": "text" } }, "required": ["runtime"] },
+      "then": { "properties": { "entrypoint": { "pattern": "^[A-Za-z0-9_./]+\\.(md|txt)$" } } },
+      "else": {
+        "properties": {
+          "entrypoint": { "pattern": "^[A-Za-z0-9_./]+\\.(py|js):[A-Za-z_$][A-Za-z0-9_$]*$" }
+        }
+      }
+    }
+  ],
   "required": [
     "protocol_version",
     "id",
@@ -40,13 +51,16 @@
     },
     "runtime": {
       "type": "string",
-      "enum": ["python3.11", "python3.12", "python3.13", "node20"],
-      "description": "Execution runtime the payload targets. v0.1 supports CPython and Node.js; only the Python runtime supports chain calls (see 'skill:' capabilities). Future versions may add more runtimes and/or a wasm-component target."
+      "enum": ["python3.11", "python3.12", "python3.13", "node20", "text"],
+      "description": "Execution runtime the payload targets. 'python3.1x' and 'node20' are executable code, dispatched to a sandboxed subprocess. 'text' is not code at all: the payload (a prompt, instructions, any static content, in the spirit of a SKILL.md) is returned verbatim with no execution and no capability surface. Chain calls ('skill:' capabilities) work identically across every runtime. Future versions may add more code runtimes and/or a wasm-component target."
     },
     "entrypoint": {
       "type": "string",
-      "pattern": "^[A-Za-z0-9_./]+\\.(py|js):[A-Za-z_$][A-Za-z0-9_$]*$",
-      "description": "Path within the payload plus the callable to invoke, e.g. 'payload.py:run' or 'payload.js:run'. The callable receives a single JSON-serializable dict and returns a JSON-serializable dict."
+      "description": "For code runtimes: path within the payload plus the callable to invoke, e.g. 'payload.py:run' or 'payload.js:run' — the callable receives a single JSON-serializable dict and returns a JSON-serializable dict. For the 'text' runtime: a bare path with no callable, e.g. 'skill.md' or 'notes.txt' — there's nothing to call, the file's contents are the result.",
+      "oneOf": [
+        { "pattern": "^[A-Za-z0-9_./]+\\.(py|js):[A-Za-z_$][A-Za-z0-9_$]*$" },
+        { "pattern": "^[A-Za-z0-9_./]+\\.(md|txt)$" }
+      ]
     },
     "input_schema": {
       "type": "object",

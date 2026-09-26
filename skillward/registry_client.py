@@ -53,9 +53,20 @@ class RegistryClient:
         return [SkillSummary.model_validate(item) for item in resp.json()]
 
     def get_manifest(self, skill_id: str, version: str) -> SkillManifest:
+        """`version` may be an exact semver, or the literal string "latest" —
+        resolved centrally by the registry to whichever version is actually
+        current, rather than by whatever happens to be checked out locally.
+        The returned manifest's own `.version` is always the concrete,
+        resolved version, never the literal "latest"."""
         resp = self._client.get(f"{self.base_url}/skills/{skill_id}/{version}/manifest")
         resp.raise_for_status()
         return SkillManifest.model_validate(resp.json())
+
+    def list_versions(self, skill_id: str) -> list[str]:
+        """Every version of `skill_id` visible to this caller, newest first."""
+        resp = self._client.get(f"{self.base_url}/skills/{skill_id}/versions")
+        resp.raise_for_status()
+        return resp.json()
 
     def fetch_verified_payload(self, manifest: SkillManifest, *, require_signature: bool = False) -> bytes:
         """Fetch the payload bytes for a manifest and verify integrity before returning.

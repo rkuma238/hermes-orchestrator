@@ -229,6 +229,63 @@ def test_node_runtime_skill(orchestrator, account):
     assert result == {"upper": "SKILLWARD"}
 
 
+def test_text_runtime_skill(orchestrator, account):
+    # Not code at all: no function, no sandbox, no capability surface — the
+    # payload's own bytes are the entire result, in the spirit of a SKILL.md.
+    publish_resp = httpx.post(
+        f"{GATEWAY_URL}/skills/pytest-text-skill/1.0.0",
+        headers={"Authorization": f"Bearer {account['api_key']}"},
+        json={
+            "name": "Text Skill",
+            "description": "a plain-text/prompt skill with no code to execute",
+            "runtime": "text",
+            "entrypoint": "skill.md",
+            "input_schema": {"type": "object"},
+            "output_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+            "visibility": "public",
+            "code": "You are a helpful assistant. Always respond in a friendly tone.",
+        },
+    )
+    assert publish_resp.status_code == 200
+    assert publish_resp.json()["runtime"] == "text"
+
+    result = orchestrator.invoke("pytest-text-skill", "1.0.0", {})
+    assert result == {"text": "You are a helpful assistant. Always respond in a friendly tone."}
+
+
+def test_invoke_with_latest_resolves_to_newest_version(orchestrator, account):
+    # A local skills directory has no equivalent of this: a file on disk is
+    # just whatever happens to be checked out, with no live "give me
+    # whatever's current" concept. The registry resolves it centrally.
+    api_key = account["api_key"]
+    skill_id = "pytest-latest-check"
+    for version, n in [("1.0.0", 1), ("1.1.0", 2)]:
+        resp = httpx.post(
+            f"{GATEWAY_URL}/skills/{skill_id}/{version}",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "name": "Latest Check",
+                "description": "proves version='latest' resolves centrally to the newest published version",
+                "runtime": "python3.13",
+                "entrypoint": "payload.py:run",
+                "input_schema": {"type": "object"},
+                "output_schema": {"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]},
+                "visibility": "public",
+                "code": f"def run(input_data):\n    return {{'n': {n}}}\n",
+            },
+        )
+        assert resp.status_code == 200
+
+    manifest = orchestrator.registry.get_manifest(skill_id, "latest")
+    assert manifest.version == "1.1.0"  # resolved to concrete, never the literal "latest"
+
+    result = orchestrator.invoke(skill_id, "latest", {})
+    assert result == {"n": 2}
+
+    versions = orchestrator.list_versions(skill_id)
+    assert versions == ["1.1.0", "1.0.0"]  # newest first
+
+
 def _publish_immutability_skill(api_key: str, skill_id: str, *, code: str, visibility: str = "public"):
     return httpx.post(
         f"{GATEWAY_URL}/skills/{skill_id}/1.0.0",
